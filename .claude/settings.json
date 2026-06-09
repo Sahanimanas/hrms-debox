@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat index.html)",
+      "Bash(find . -path ./node_modules -prune -o \\\\\\( -iname \"manifest*.json\" -o -iname \"site.webmanifest\" \\\\\\) -print)",
+      "Bash(node -e \"require\\('sharp'\\); console.log\\('sharp-ok'\\)\")",
+      "Bash(node --version; echo \"---\"; ls node_modules/sharp 2>/dev/null && echo \"sharp-present\" || echo \"no-sharp\"; echo \"---\"; ls node_modules/.bin/ 2>/dev/null | grep -i -E \"sharp|resize|magick\" || echo \"no-bin\"; echo \"---logo on desktop---\"; ls -la \"c:/Users/HP/Desktop/\" 2>/dev/null | grep -i -E \"logo|debox\" || echo \"not-on-desktop\")",
+      "Read(//c/Users/HP/Desktop/**)",
+      "Bash(node -e \"const fs=require\\('fs'\\);const b=fs.readFileSync\\('public/logo_debox_tagline-w.png'\\);const ct=b[25];console.log\\('colorType',ct,'\\(6=RGBA,2=RGB,3=palette,4=GA,0=gray\\)'\\);console.log\\('hasTRNS',b.includes\\(Buffer.from\\('tRNS'\\)\\)\\)\")",
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\(require\\('sharp'\\).format ? 'sharp-ok':'x'\\); console.log\\(typeof require\\('png-to-ico'\\)\\)\")",
+      "Bash(node gen-icons.cjs)",
+      "Bash(node -e \"const s=require\\('sharp'\\);['public/favicon-32x32.png','public/android-chrome-512x512.png','public/apple-touch-icon.png'].forEach\\(async f=>{const m=await s\\(f\\).metadata\\(\\);console.log\\(f,m.width+'x'+m.height,m.hasAlpha?'alpha':'noalpha'\\)}\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\(p.scripts,null,2\\)\\)\")",
+      "Bash(npm run *)",
+      "Bash(node -e \"const fs=require\\('fs'\\);const c=fs.readFileSync\\('vite.config.js','utf8'\\);const i=c.search\\(/manifest|name|VitePWA|short_name/i\\);console.log\\(c\\)\")",
+      "Bash(node -e \"const m=require\\('./dist/manifest.webmanifest'\\);console.log\\('manifest name:',m.name,'| short:',m.short_name\\)\")",
+      "Bash(node -e \"const fs=require\\('fs'\\);const c=fs.readFileSync\\('vite.config.js','utf8'\\);const i=c.indexOf\\('server'\\);console.log\\(i>=0?c.slice\\(i-50,i+400\\):'NO server block in vite.config'\\)\")",
+      "PowerShell(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 8000,9001,9000,5173,5000 } | Select-Object LocalPort,LocalAddress -Unique | Sort-Object LocalPort)",
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{const p=JSON.parse\\(s\\);console.log\\('scripts:',JSON.stringify\\(p.scripts\\)\\);console.log\\('main:',p.main\\)}\\)\")",
+      "Bash(curl -s -X POST http://localhost:4001/api/setup/test-connection -H \"Content-Type: application/json\" -d '{\"mongo_url\":\"mongodb+srv://bheemprakash_db_user:V634iEhG6q40KRkU@lms-cluster.sse9eji.mongodb.net/?appName=LMS-CLUSTER\",\"db_name\":\"hrmg\"}')",
+      "Bash(ls src/*.css src/**/*.css)",
+      "Bash(ls tailwind.config.* postcss.config.* components.json)"
+    ]
+  }
+}
