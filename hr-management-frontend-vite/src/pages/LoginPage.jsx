@@ -192,7 +192,7 @@ const LoginPage = () => {
             <p className="text-lg text-slate-600">Employee Leave Management System</p>
           </div>
 
-          <Tabs defaultValue="login" className="w-full">
+          <Tabs defaultValue={new URLSearchParams(window.location.search).get('tab') === 'register' ? 'register' : 'login'} className="w-full">
             <TabsList className="grid w-full grid-cols-1 mb-6">
               <TabsTrigger value="login" data-testid="login-tab">Login</TabsTrigger>
               <TabsTrigger value="register" data-testid="register-tab">Register</TabsTrigger>
