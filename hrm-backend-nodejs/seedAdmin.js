@@ -22,9 +22,9 @@ const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017';
 const DB_NAME = process.env.DB_NAME || 'hrms';
 
 // CLI args (with sensible defaults)
-const email = (process.argv[2] || 'aditi.brainwave@gmail.com').toLowerCase().trim();
+const email = (process.argv[2] || 'admin@debox.com').toLowerCase().trim();
 const password = process.argv[3] || 'Admin@123';
-const fullName = process.argv[4] || 'Aditi';
+const fullName = process.argv[4] || 'Debox';
 
 const defaultLeaveBalance = {
   sick_leave: 10.0,

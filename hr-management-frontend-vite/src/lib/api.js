@@ -38,9 +38,11 @@
 
 import axios from 'axios';
 
-// 🔥 Use relative API path (works behind Nginx Proxy)
+// Use the backend URL from env when set; otherwise fall back to the relative
+// `/api` path (works behind an Nginx proxy or the Vite dev-server proxy).
+const BACKEND_URL = import.meta.env.VITE_APP_BACKEND_URL;
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: BACKEND_URL ? `${BACKEND_URL}/api` : '/api',
 });
 
 // Add auth token
@@ -59,7 +61,10 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // Don't redirect on the login request itself — let the form show the
+    // error inline so the page doesn't reload and clear the inputs.
+    const isLoginRequest = error.config?.url?.includes('/auth/login');
+    if (error.response?.status === 401 && !isLoginRequest) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
