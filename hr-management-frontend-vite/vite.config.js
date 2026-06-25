@@ -171,6 +171,7 @@ export default defineConfig({
     },
   },
   server: {
+    allowedHosts: true, // allow all hosts
     proxy: {
       // Forward API calls from the Vite dev server to the backend
       "/api": {
