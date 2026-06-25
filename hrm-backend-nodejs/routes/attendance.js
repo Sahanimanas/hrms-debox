@@ -7,6 +7,16 @@ const { requireRole, validate } = require('../middleware/roleCheck');
 const { schemas, AttendanceStatus } = require('../models/schemas');
 
 /**
+ * Stable, unique key for an employee. The DB has two employee shapes:
+ *  - app-created: { id (uuid), employee_id (EMPxxxx), ... }
+ *  - seed-created: { _id (ObjectId), employee_code (EMPxxxx), ... }  (no employee_id)
+ * Falling back here guarantees every employee gets a UNIQUE key so attendance
+ * never collides across rows (e.g. all `undefined` → one shared cell).
+ */
+const employeeUid = (e) =>
+  e.employee_id || e.employee_code || e.id || (e._id != null ? String(e._id) : undefined);
+
+/**
  * GET /api/attendance
  * Get attendance data for a specific month/year
  * Query params: month (1-12), year (YYYY)
@@ -21,11 +31,13 @@ router.get('/', authenticate, requireRole(['admin', 'manager']), async (req, res
     const targetMonth = month ? parseInt(month) : now.getMonth() + 1;
     const targetYear = year ? parseInt(year) : now.getFullYear();
 
-    // Fetch all employees
+    // Fetch all employees (include fallback id fields so every row gets a unique key)
     const employees = await db.collection('employees')
       .find({}, {
         projection: {
           employee_id: 1,
+          employee_code: 1,
+          id: 1,
           full_name: 1,
           email: 1,
           department: 1,
@@ -76,11 +88,17 @@ router.get('/', authenticate, requireRole(['admin', 'manager']), async (req, res
       attendanceMap[record.employee_id] = record.attendance || {};
     });
 
-    // Combine employees with their attendance
-    const result = employees.map(emp => ({
-      ...emp,
-      attendance: attendanceMap[emp.employee_id] || {}
-    }));
+    // Combine employees with their attendance, keyed by a guaranteed-unique id.
+    // We expose that unique id back as `employee_id` so the frontend grid and the
+    // mark endpoints all agree on the same per-employee key.
+    const result = employees.map(emp => {
+      const uid = employeeUid(emp);
+      return {
+        ...emp,
+        employee_id: uid,
+        attendance: attendanceMap[uid] || {}
+      };
+    });
 
     res.json({
       month: targetMonth,
@@ -286,16 +304,16 @@ router.post('/mark-column', authenticate, requireRole(['admin']), validate(schem
       });
     }
 
-    // Get all employees
+    // Get all employees (with fallback id fields for a unique per-employee key)
     const employees = await db.collection('employees')
-      .find({}, { projection: { employee_id: 1 } })
+      .find({}, { projection: { employee_id: 1, employee_code: 1, id: 1 } })
       .toArray();
 
     const updateField = `attendance.${day}`;
 
     const bulkOps = employees.map(emp => ({
       updateOne: {
-        filter: { employee_id: emp.employee_id, month, year },
+        filter: { employee_id: employeeUid(emp), month, year },
         update: {
           $set: {
             [updateField]: status,
