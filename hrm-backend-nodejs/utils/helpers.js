@@ -134,6 +134,84 @@ const getMonthName = (year, month) => {
   return date.toLocaleString('default', { month: 'long', year: 'numeric' });
 };
 
+/**
+ * Stable, unique key for an employee. The DB has two employee shapes:
+ *  - app-created: { id (uuid), employee_id (EMPxxxx), ... }
+ *  - seed-created: { _id (ObjectId), employee_code (EMPxxxx), ... }  (no employee_id)
+ * Falling back here guarantees every employee gets a UNIQUE key so attendance
+ * never collides across rows (e.g. all `undefined` → one shared cell).
+ */
+const employeeUid = (e) =>
+  e.employee_id || e.employee_code || e.id || (e._id != null ? String(e._id) : undefined);
+
+/**
+ * Company timezone used for clock-in/out and "today" calculations.
+ */
+const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Kolkata';
+
+const tzFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: APP_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  weekday: 'short',
+  hourCycle: 'h23'
+});
+
+const WEEKDAYS = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+/**
+ * Break a Date into wall-clock parts in the company timezone.
+ * Returns { date: 'YYYY-MM-DD', year, month, day, weekday (0=Sun), minutes (since local midnight) }
+ */
+const localParts = (when = new Date()) => {
+  const parts = Object.fromEntries(
+    tzFormatter.formatToParts(when).map(p => [p.type, p.value])
+  );
+  const year = parseInt(parts.year, 10);
+  const month = parseInt(parts.month, 10);
+  const day = parseInt(parts.day, 10);
+  const hour = parseInt(parts.hour, 10);
+  const minute = parseInt(parts.minute, 10);
+  const second = parseInt(parts.second, 10);
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    year,
+    month,
+    day,
+    weekday: WEEKDAYS[parts.weekday],
+    minutes: hour * 60 + minute,
+    _utcGuess: Date.UTC(year, month - 1, day, hour, minute, second)
+  };
+};
+
+/**
+ * Convert a wall-clock date + "HH:mm" in the company timezone to a real Date.
+ */
+const zonedTimeToDate = (dateStr, timeStr) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [hh, mm] = timeStr.split(':').map(Number);
+  const guess = Date.UTC(y, m - 1, d, hh, mm);
+  // Offset of the zone at that instant, applied twice to settle across DST edges
+  let ts = guess;
+  for (let i = 0; i < 2; i++) {
+    const offset = localParts(new Date(ts))._utcGuess - ts;
+    ts = guess - offset;
+  }
+  return new Date(ts);
+};
+
+/**
+ * "HH:mm" -> minutes since midnight
+ */
+const timeToMinutes = (timeStr) => {
+  const [h, m] = String(timeStr).split(':').map(Number);
+  return h * 60 + m;
+};
+
 module.exports = {
   hashPassword,
   verifyPassword,
@@ -145,5 +223,10 @@ module.exports = {
   toISOString,
   parseDate,
   formatCurrency,
-  getMonthName
+  getMonthName,
+  employeeUid,
+  APP_TIMEZONE,
+  localParts,
+  zonedTimeToDate,
+  timeToMinutes
 };

@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import api from '@/lib/api';
 import { getAuth } from '@/lib/auth';
 import { format } from 'date-fns';
+import ClockWidget from '@/components/ClockWidget';
+import { moduleDashboardWidgets } from '@/modules/registry';
 
 const DashboardPage = () => {
   const [stats, setStats] = useState(null);
@@ -63,6 +65,8 @@ const DashboardPage = () => {
         </h1>
         <p className="text-sm sm:text-base md:text-lg text-slate-600">Welcome back! Here&apos;s your overview</p>
       </div>
+
+      <ClockWidget />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
@@ -157,6 +161,11 @@ const DashboardPage = () => {
           </Card>
         )}
       </div>
+
+      {/* Module widgets (announcements, birthdays, …) */}
+      {moduleDashboardWidgets
+        .filter(w => !w.roles || w.roles.includes(user?.role))
+        .map((w) => { const Widget = w.component; return <Widget key={w.key} />; })}
 
       {/* Recent Leaves */}
       <Card className="border-slate-100 shadow-sm">

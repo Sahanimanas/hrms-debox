@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Calendar, ChevronLeft, ChevronRight, X, Clock, Sun, Sunset, Trash2, Star, FileText, Gift, AlertCircle, Loader2, AlertTriangle, Info, Stethoscope, Target } from 'lucide-react';
+import { Plus, Calendar, ChevronLeft, ChevronRight, X, Clock, Sun, Sunset, Trash2, Star, FileText, Gift, AlertCircle, Loader2, AlertTriangle, Info, Stethoscope, Target, Download, Layers, CalendarPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -12,6 +12,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { format } from 'date-fns';
+import { Input } from '@/components/ui/input';
+import { exportCsv } from '@/lib/exportCsv';
+import ApprovalChain from '@/modules/leave/components/ApprovalChain';
+import { fmtKey, toDateKey, creditLabel } from '@/modules/leave/lib';
+
+// Public holidays close the office; optional / restricted ones can be taken as leave (Restricted Holiday quota)
+const isOptionalHoliday = (h) => h && ['optional', 'restricted'].includes(h.type);
+const groupKeyOf = (config) => `${config.leaveType}__${config.type === 'full' ? 'full' : `half_${config.period}`}`;
 
 const LeavesPage = () => {
   // Hardcoded clubbing rules as fallback (in case API doesn't return them)
@@ -40,6 +48,13 @@ const LeavesPage = () => {
     reason: '',
   });
 
+  // Range helper for long leave (maternity etc.)
+  const [rangeFrom, setRangeFrom] = useState('');
+  const [rangeTo, setRangeTo] = useState('');
+
+  // Server-side day count per application group (sandwich rule, type rules) — keyed by request signature
+  const [serverPreview, setServerPreview] = useState({});
+
   useEffect(() => {
     fetchLeaves();
     fetchLeaveTypesAndBalance();
@@ -52,6 +67,47 @@ const LeavesPage = () => {
   const fetchLeaveTypesAndBalance = async () => {
     setLoadingTypes(true);
     try {
+      // Preferred: policy types with the employee's effective balance (LV-2)
+      try {
+        const res = await api.get('/v2/leave/my-balance');
+        if (res.data?.has_profile && res.data.types?.length) {
+          const types = res.data.types
+            .filter(t => t.eligible !== false)
+            .map(t => ({
+              name: t.leave_type,
+              key: t.key,
+              quota: t.annual_quota || 0,
+              available: t.is_unlimited ? Infinity : (t.available ?? 0),
+              description: t.description || '',
+              carryForward: t.carry_forward_allowed,
+              maxCarryForward: t.max_carry_forward_days,
+              creditType: t.credit_type,
+              monthlyCredit: t.monthly_credit || 0,
+              advanceDaysRequired: t.advance_days_required || 0,
+              clubbingNotAllowedWith: t.clubbing_not_allowed_with || [],
+              isUnlimited: t.is_unlimited,
+              perOccurrence: t.per_occurrence,
+              restrictedOnly: t.restricted_holiday_only,
+              sandwich: t.sandwich_rule,
+              creditLabel: creditLabel(t),
+            }));
+          types.push({
+            name: 'Comp Off',
+            key: 'comp_off',
+            quota: 0,
+            available: res.data.comp_off ?? 0,
+            description: 'Compensatory off for working on holidays/weekends',
+            isCompOff: true,
+            clubbingNotAllowedWith: []
+          });
+          setLeaveTypes(types);
+          setDefaultLeaveType(types[0].name);
+          return;
+        }
+      } catch {
+        // fall back to the policy + profile below
+      }
+
       // Fetch leave policy (for quotas)
       const policyResponse = await api.get('/leaves/leave-policy');
       const policies = policyResponse.data?.policies || [];
@@ -75,7 +131,11 @@ const LeavesPage = () => {
           monthlyCredit: policy.monthly_credit || 0,
           advanceDaysRequired: policy.advance_days_required || 0,
           clubbingNotAllowedWith: policy.clubbing_not_allowed_with || [],
-          isUnlimited: policy.is_unlimited || false
+          isUnlimited: policy.is_unlimited || false,
+          perOccurrence: policy.credit_type === 'event' && (policy.event_scope || 'occurrence') === 'occurrence',
+          restrictedOnly: policy.restricted_holiday_only || false,
+          sandwich: policy.sandwich_rule || false,
+          creditLabel: creditLabel(policy),
         };
       });
 
@@ -216,8 +276,9 @@ const LeavesPage = () => {
     // Add balance info
     Object.keys(usage).forEach(type => {
       const typeInfo = leaveTypes.find(t => t.name === type);
-      usage[type].available = typeInfo?.available ?? 0;
+      usage[type].available = typeInfo?.perOccurrence ? typeInfo.quota : (typeInfo?.available ?? 0);
       usage[type].isUnpaid = typeInfo?.isUnlimited || false;
+      usage[type].perOccurrence = typeInfo?.perOccurrence || false;
       usage[type].sufficient = usage[type].isUnpaid || usage[type].available >= usage[type].days;
     });
 
@@ -227,13 +288,82 @@ const LeavesPage = () => {
   // Check for insufficient balance
   const insufficientBalanceTypes = useMemo(() => {
     return Object.entries(balanceUsage)
-      .filter(([type, info]) => !info.isUnpaid && !info.sufficient)
+      .filter(([, info]) => !info.isUnpaid && !info.sufficient)
       .map(([type, info]) => ({
         type,
         available: info.available,
         requested: info.days
       }));
   }, [balanceUsage]);
+
+  // One application per leave type + full/half configuration (same grouping as submit)
+  const applicationGroups = useMemo(() => {
+    const groups = {};
+    Object.entries(selectedDates).forEach(([dateKey, config]) => {
+      if (!config.leaveType) return;
+      const key = groupKeyOf(config);
+      if (!groups[key]) {
+        groups[key] = {
+          key,
+          leaveType: config.leaveType,
+          dates: [],
+          is_half_day: config.type === 'half',
+          half_day_period: config.type === 'half' ? config.period : null
+        };
+      }
+      groups[key].dates.push(dateKey);
+    });
+    Object.values(groups).forEach(g => { g.dates.sort(); g.signature = `${g.key}|${g.dates.join(',')}`; });
+    return Object.values(groups);
+  }, [selectedDates]);
+
+  // Ask the server for the real day count (sandwich rule) and policy checks, debounced
+  useEffect(() => {
+    if (!dialogOpen || applicationGroups.length === 0) return undefined;
+    const timer = setTimeout(async () => {
+      const results = {};
+      await Promise.all(applicationGroups.map(async (g) => {
+        try {
+          const res = await api.post('/leaves/validate-application', {
+            leave_type: g.leaveType,
+            dates: g.dates.map(d => `${d}T00:00:00.000Z`),
+            is_half_day: g.is_half_day,
+            half_day_period: g.half_day_period
+          });
+          results[g.signature] = res.data;
+        } catch {
+          results[g.signature] = null;
+        }
+      }));
+      setServerPreview(prev => ({ ...prev, ...results }));
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [applicationGroups, dialogOpen]);
+
+  const previewRows = applicationGroups.map(g => ({ group: g, result: serverPreview[g.signature] }));
+  const previewPending = previewRows.some(r => r.result === undefined);
+  const serverErrors = previewRows.flatMap(r => (r.result?.errors || []).map(e => ({ ...e, leaveType: r.group.leaveType })));
+  const serverTotalDays = previewRows.reduce((sum, r) => sum + (r.result?.days?.days_count ?? 0), 0);
+  const sandwichTotal = previewRows.reduce((sum, r) => sum + (r.result?.days?.sandwich_days ?? 0), 0);
+
+  const addDateRange = () => {
+    if (!rangeFrom || !rangeTo || rangeTo < rangeFrom) {
+      toast.error('Pick a valid from / to date');
+      return;
+    }
+    const additions = {};
+    let skipped = 0;
+    for (let d = new Date(`${rangeFrom}T12:00:00Z`); d.toISOString().slice(0, 10) <= rangeTo; d = new Date(d.getTime() + 86400000)) {
+      const key = d.toISOString().slice(0, 10);
+      const holiday = holidayMap[key];
+      if ((holiday && !isOptionalHoliday(holiday)) || existingLeaveMap[key]) { skipped++; continue; }
+      additions[key] = selectedDates[key] || { type: 'full', period: 'morning', leaveType: defaultLeaveType };
+      if (Object.keys(additions).length > 366) break;
+    }
+    setSelectedDates(prev => ({ ...prev, ...additions }));
+    setCurrentMonth(new Date(`${rangeFrom}T00:00:00`));
+    if (skipped) toast.info(`${skipped} day(s) skipped (holiday or existing leave)`);
+  };
 
   // Validate advance notice for all selected leave types (only for future dates)
   const advanceNoticeWarnings = useMemo(() => {
@@ -288,8 +418,7 @@ const LeavesPage = () => {
   const getHolidayMap = () => {
     const holidayMap = {};
     holidays.forEach(holiday => {
-      const date = new Date(holiday.date);
-      const dateKey = formatDateKey(date.getFullYear(), date.getMonth(), date.getDate());
+      const dateKey = /^\d{4}-\d{2}-\d{2}/.test(String(holiday.date)) ? String(holiday.date).slice(0, 10) : toDateKey(holiday.date);
       holidayMap[dateKey] = holiday;
     });
     return holidayMap;
@@ -305,8 +434,7 @@ const LeavesPage = () => {
 
       const dates = leave.dates || [];
       dates.forEach(dateStr => {
-        const date = new Date(dateStr);
-        const dateKey = formatDateKey(date.getFullYear(), date.getMonth(), date.getDate());
+        const dateKey = toDateKey(dateStr);
         leaveMap[dateKey] = {
           leave_type: leave.leave_type,
           status: leave.status,
@@ -320,7 +448,7 @@ const LeavesPage = () => {
 
   const existingLeaveMap = getExistingLeaveMap();
 
-  const isHoliday = (dateKey) => !!holidayMap[dateKey];
+  const isHoliday = (dateKey) => !!holidayMap[dateKey] && !isOptionalHoliday(holidayMap[dateKey]);
   const getHolidayInfo = (dateKey) => holidayMap[dateKey] || null;
   const hasExistingLeave = (dateKey) => !!existingLeaveMap[dateKey];
   const getExistingLeaveInfo = (dateKey) => existingLeaveMap[dateKey] || null;
@@ -328,7 +456,7 @@ const LeavesPage = () => {
   const getStatusDisplayText = (status) => {
     const statusMap = {
       pending: 'Pending',
-      manager_approved: 'Manager Approved',
+      manager_approved: 'Partly approved',
       approved: 'Approved'
     };
     return statusMap[status] || status;
@@ -368,7 +496,8 @@ const LeavesPage = () => {
 
     setSelectedDates(prev => {
       if (prev[dateKey]) {
-        const { [dateKey]: removed, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[dateKey];
         return rest;
       } else {
         return {
@@ -413,7 +542,8 @@ const LeavesPage = () => {
 
   const removeDate = (dateKey) => {
     setSelectedDates(prev => {
-      const { [dateKey]: removed, ...rest } = prev;
+      const rest = { ...prev };
+      delete rest[dateKey];
       return rest;
     });
   };
@@ -437,10 +567,6 @@ const LeavesPage = () => {
     return Object.values(selectedDates).reduce((total, config) => {
       return total + (config.type === 'full' ? 1 : 0.5);
     }, 0);
-  };
-
-  const getLeaveTypeInfo = (typeName) => {
-    return leaveTypes.find(t => t.name === typeName);
   };
 
   const handleSubmit = async (e) => {
@@ -482,6 +608,12 @@ const LeavesPage = () => {
       }
     }
 
+    // Server-side checks (sandwich-inclusive balance, restricted holidays, per-occurrence caps, overlaps)
+    if (serverErrors.length > 0) {
+      toast.error(serverErrors[0].message);
+      return;
+    }
+
     // Check balance for all types
     if (insufficientBalanceTypes.length > 0) {
       const first = insufficientBalanceTypes[0];
@@ -493,27 +625,13 @@ const LeavesPage = () => {
 
     try {
       // Group dates by leave type AND configuration (full/half + period)
-      const groups = {};
-
-      Object.entries(selectedDates).forEach(([dateKey, config]) => {
-        const groupKey = `${config.leaveType}__${config.type === 'full' ? 'full' : `half_${config.period}`}`;
-
-        if (!groups[groupKey]) {
-          groups[groupKey] = {
-            leaveType: config.leaveType,
-            dates: [],
-            is_half_day: config.type === 'half',
-            half_day_period: config.type === 'half' ? config.period : null
-          };
-        }
-        groups[groupKey].dates.push(dateKey);
-      });
+      const groups = Object.fromEntries(applicationGroups.map(g => [g.key, g]));
 
       // Submit each group as a separate leave request
       const submissions = Object.values(groups).map(async (group) => {
         const payload = {
           leave_type: group.leaveType,
-          dates: group.dates.map(d => new Date(d).toISOString()),
+          dates: group.dates.map(d => `${d}T00:00:00.000Z`),
           reason: leaveForm.reason,
           is_half_day: group.is_half_day,
           half_day_period: group.half_day_period,
@@ -534,6 +652,7 @@ const LeavesPage = () => {
       setDialogOpen(false);
       setLeaveForm({ reason: '' });
       setSelectedDates({});
+      setServerPreview({});
       fetchLeaves();
       fetchLeaveTypesAndBalance();
     } catch (error) {
@@ -547,7 +666,7 @@ const LeavesPage = () => {
     if (!dates || dates.length === 0) return 'No dates';
 
     const sortedDates = dates
-      .map(d => new Date(d))
+      .map(d => new Date(`${toDateKey(d)}T00:00:00`))
       .sort((a, b) => a - b);
 
     if (sortedDates.length === 1) {
@@ -641,7 +760,8 @@ const LeavesPage = () => {
       const isWeekend = date.getDay() === 0 || date.getDay() === 6;
       const config = selectedDates[dateKey];
       const holidayInfo = getHolidayInfo(dateKey);
-      const isHolidayDate = !!holidayInfo;
+      const isHolidayDate = !!holidayInfo && !isOptionalHoliday(holidayInfo);
+      const isOptionalDate = !!holidayInfo && isOptionalHoliday(holidayInfo);
       const existingLeaveInfo = getExistingLeaveInfo(dateKey);
       const hasLeave = !!existingLeaveInfo;
       const isBlocked = isHolidayDate || hasLeave;
@@ -662,6 +782,7 @@ const LeavesPage = () => {
             ${isHolidayDate ? 'bg-rose-100 text-rose-600 cursor-not-allowed border-2 border-rose-300' : ''}
             ${hasLeave && !isHolidayDate ? 'bg-amber-100 text-amber-600 cursor-not-allowed border-2 border-amber-300' : ''}
             ${!isBlocked ? 'cursor-pointer hover:bg-slate-100' : ''}
+            ${isOptionalDate && !isSelected && !hasLeave ? 'bg-orange-50 text-orange-700 border-2 border-dashed border-orange-300' : ''}
             ${isToday && !isSelected && !isBlocked ? 'ring-2 ring-amber-400 ring-offset-1' : ''}
             ${isWeekend && !isSelected && !isBlocked ? 'text-slate-400' : ''}
             ${isPast && !isSelected && !isBlocked ? 'text-slate-400' : ''}
@@ -678,22 +799,26 @@ const LeavesPage = () => {
           {isHolidayDate && (
             <Star className="absolute -top-1 -right-1 w-2.5 h-2.5 sm:w-3 sm:h-3 text-rose-500 fill-rose-500" />
           )}
+          {isOptionalDate && !hasLeave && (
+            <Star className="absolute -top-1 -right-1 w-2.5 h-2.5 sm:w-3 sm:h-3 text-orange-500" />
+          )}
           {hasLeave && !isHolidayDate && (
             <FileText className="absolute -top-1 -right-1 w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-600" />
           )}
         </button>
       );
 
-      if (isHolidayDate) {
+      if (isHolidayDate || (isOptionalDate && !hasLeave)) {
         days.push(
           <TooltipProvider key={day}>
             <Tooltip>
               <TooltipTrigger asChild>{dayButton}</TooltipTrigger>
-              <TooltipContent side="top" className="bg-rose-600 text-white text-xs">
+              <TooltipContent side="top" className={`${isOptionalDate ? 'bg-orange-600' : 'bg-rose-600'} text-white text-xs`}>
                 <p className="font-medium">{holidayInfo.name}</p>
                 {holidayInfo.type && (
                   <p className="text-[10px] opacity-80 capitalize">{holidayInfo.type} Holiday</p>
                 )}
+                {isOptionalDate && <p className="text-[10px] opacity-90">Can be taken as Restricted Holiday</p>}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -747,7 +872,7 @@ const LeavesPage = () => {
   const getStatusText = (status) => {
     const textMap = {
       pending: 'Pending',
-      manager_approved: 'Manager Approved',
+      manager_approved: 'Partly approved',
       approved: 'Approved',
       rejected: 'Rejected',
     };
@@ -772,14 +897,6 @@ const LeavesPage = () => {
       holidayDate.getFullYear() === currentMonth.getFullYear();
   }).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  const currentMonthLeaves = leaves.filter(leave => {
-    if (leave.status === 'rejected') return false;
-    return leave.dates?.some(dateStr => {
-      const date = new Date(dateStr);
-      return date.getMonth() === currentMonth.getMonth() &&
-        date.getFullYear() === currentMonth.getFullYear();
-    });
-  });
 
   if (loading) {
     return (
@@ -838,7 +955,7 @@ const LeavesPage = () => {
                                 <span>{type.name}</span>
                                 <span className="text-[10px] sm:text-xs text-slate-500 ml-1 sm:ml-2">
                                   {type.isCompOff ? `(${type.available})` :
-                                    type.name === 'Unpaid Leave' ? '(∞)' :
+                                    (type.isUnlimited || type.name === 'Unpaid Leave') ? '(∞)' : type.perOccurrence ? `(${type.quota}/occurrence)` :
                                       `(${type.available}/${type.quota})`}
                                 </span>
                               </div>
@@ -862,6 +979,21 @@ const LeavesPage = () => {
                   <p className="text-[10px] sm:text-xs text-slate-500 mt-1.5 sm:mt-2">
                     New dates will use this leave type. Change each day individually below.
                   </p>
+                  <div className="mt-2 pt-2 border-t border-slate-200 flex flex-col sm:flex-row sm:items-end gap-2">
+                    <div className="grid grid-cols-2 gap-2 flex-1">
+                      <div>
+                        <Label className="text-[10px] sm:text-xs text-slate-600">Range from</Label>
+                        <Input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className="h-8 text-xs mt-0.5" />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] sm:text-xs text-slate-600">to</Label>
+                        <Input type="date" value={rangeTo} min={rangeFrom || undefined} onChange={(e) => setRangeTo(e.target.value)} className="h-8 text-xs mt-0.5" />
+                      </div>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={addDateRange} className="h-8 text-xs gap-1">
+                      <CalendarPlus className="w-3.5 h-3.5" /> Add range
+                    </Button>
+                  </div>
                 </div>
               )}
 
@@ -905,6 +1037,10 @@ const LeavesPage = () => {
                           <Star className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 sm:w-2 sm:h-2 text-rose-500 fill-rose-500" />
                         </div>
                         <span className="text-slate-600">Holiday</span>
+                      </div>
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-full bg-orange-50 border-2 border-dashed border-orange-300"></div>
+                        <span className="text-slate-600">Optional holiday</span>
                       </div>
                     </div>
 
@@ -1023,7 +1159,7 @@ const LeavesPage = () => {
                                             {wouldConflict && <AlertCircle className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-500" />}
                                             <span className={wouldConflict ? 'text-red-600' : ''}>{type.name}</span>
                                             <span className="text-[10px] sm:text-xs text-slate-400">
-                                              {type.name === 'Unpaid Leave' ? '∞' : type.available}
+                                              {(type.isUnlimited || type.name === 'Unpaid Leave') ? '∞' : type.perOccurrence ? `${type.quota}/occ.` : type.available}
                                             </span>
                                           </div>
                                         </SelectItem>
@@ -1202,6 +1338,32 @@ const LeavesPage = () => {
                 </Alert>
               )}
 
+              {/* Day count from the server: sandwich rule + policy checks (LV-2 / LV-3) */}
+              {previewRows.length > 0 && (
+                <div className="p-2 sm:p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5" data-testid="day-count-preview">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs sm:text-sm font-medium flex items-center gap-1.5"><Layers className="w-3.5 h-3.5" /> Days that will be charged</Label>
+                    {previewPending ? <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" /> : <span className="text-xs sm:text-sm font-semibold text-slate-900">{serverTotalDays} day{serverTotalDays !== 1 ? 's' : ''}</span>}
+                  </div>
+                  {previewRows.map(({ group, result }) => (
+                    <div key={group.signature} className="text-[11px] sm:text-xs text-slate-600">
+                      <span className="font-medium text-slate-800">{group.leaveType}</span>
+                      {group.is_half_day ? ` (half day, ${group.half_day_period})` : ''}: {group.dates.length} selected
+                      {result?.days && <> → <span className="font-medium">{result.days.days_count} day{result.days.days_count !== 1 ? 's' : ''}</span></>}
+                      {result?.days?.sandwich_days > 0 && (
+                        <ul className="mt-0.5 ml-3 list-disc text-amber-700">
+                          {result.days.breakdown.map(b => <li key={b.date}>{fmtKey(b.date, 'EEE, dd MMM')} — {b.reason} (sandwich rule)</li>)}
+                        </ul>
+                      )}
+                      {(result?.errors || []).map((e, i) => <p key={i} className="text-red-600 mt-0.5">⛔ {e.message}</p>)}
+                    </div>
+                  ))}
+                  {sandwichTotal > 0 && (
+                    <p className="text-[10px] sm:text-xs text-amber-700">Weekly offs / holidays between leave days count as leave for these types.</p>
+                  )}
+                </div>
+              )}
+
               {/* Reason */}
               <div>
                 <Label htmlFor="reason" className="text-xs sm:text-sm">Reason</Label>
@@ -1271,7 +1433,8 @@ const LeavesPage = () => {
                     disabled={
                       submitting ||
                       sortedSelectedDates.length === 0 ||
-                      insufficientBalanceTypes.length > 0
+                      insufficientBalanceTypes.length > 0 ||
+                      serverErrors.length > 0
                     }
                   >
                     {submitting ? 'Submitting...' : `Submit${selectedLeaveTypesSet.length > 1 ? ` (${selectedLeaveTypesSet.length})` : ''}`}
@@ -1284,7 +1447,7 @@ const LeavesPage = () => {
       </div>
 
       {/* Leave Balance Summary Cards */}
-      <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-4">
         {loadingTypes ? (
           <div className="col-span-full text-center py-3 sm:py-4 text-slate-500">
             <Loader2 className="w-5 h-5 sm:w-6 sm:h-6 animate-spin mx-auto mb-1.5 sm:mb-2" />
@@ -1294,7 +1457,7 @@ const LeavesPage = () => {
           leaveTypes.map(type => {
             const isCompOff = type.isCompOff;
             const isUnlimited = type.isUnlimited || false;
-            const isLow = type.available < 3 && type.available > 0 && !isCompOff && !isUnlimited;
+            const isLow = type.available < 3 && type.available > 0 && !isCompOff && !isUnlimited && !type.perOccurrence;
             const isEmpty = type.available === 0 && !isUnlimited;
             const isMonthly = type.creditType === 'monthly';
             const annualQuota = isMonthly && type.monthlyCredit > 0
@@ -1325,9 +1488,20 @@ const LeavesPage = () => {
                   <p className="text-[10px] sm:text-xs text-slate-500">
                     {isCompOff ? 'available' :
                       isUnlimited ? 'unlimited' :
-                        isMonthly ? `/${annualQuota}/yr` :
-                          `/${type.quota}/yr`}
+                        type.perOccurrence ? 'per occurrence' :
+                          isMonthly ? `/${annualQuota}/yr` :
+                            `/${type.quota}/yr`}
                   </p>
+                  {type.restrictedOnly && (
+                    <Badge variant="outline" className="mt-1 sm:mt-2 text-[8px] sm:text-xs bg-orange-50 text-orange-700 border-orange-200 px-1 sm:px-2">
+                      Optional holidays
+                    </Badge>
+                  )}
+                  {type.sandwich && (
+                    <Badge variant="outline" className="mt-1 sm:mt-2 text-[8px] sm:text-xs bg-slate-50 text-slate-600 border-slate-200 px-1 sm:px-2">
+                      Sandwich rule
+                    </Badge>
+                  )}
                   {isMonthly && type.monthlyCredit > 0 && (
                     <Badge variant="outline" className="mt-1 sm:mt-2 text-[8px] sm:text-xs bg-emerald-50 text-emerald-700 border-emerald-200 px-1 sm:px-2">
                       +{type.monthlyCredit}/mo
@@ -1357,9 +1531,9 @@ const LeavesPage = () => {
                       <span>{type.name}</span>
                     </p>
                     <p className="text-[10px] sm:text-xs text-amber-600">
-                      {type.creditType === 'monthly'
+                      {type.creditLabel || (type.creditType === 'monthly'
                         ? `${type.monthlyCredit}d/mo`
-                        : `${type.quota}d/yr`}
+                        : `${type.quota}d/yr`)}
                       {type.advanceDaysRequired > 0 && ` • ${type.advanceDaysRequired}d advance`}
                     </p>
                   </div>
@@ -1373,9 +1547,30 @@ const LeavesPage = () => {
       {/* Leaves List */}
       <Card className="border-slate-100 shadow-sm">
         <CardHeader className="p-3 sm:p-6">
-          <CardTitle className="text-lg sm:text-xl md:text-2xl font-semibold text-slate-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            Leave History
-          </CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-lg sm:text-xl md:text-2xl font-semibold text-slate-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              Leave History
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              disabled={!leaves.length}
+              onClick={() => exportCsv('my-leaves', leaves, [
+                { key: 'leave_type', label: 'Leave type' },
+                { label: 'Dates', value: (l) => (l.dates || []).map(toDateKey).join(' ') },
+                { key: 'days_count', label: 'Days charged' },
+                { key: 'sandwich_days', label: 'Sandwich days' },
+                { label: 'Half day', value: (l) => (l.is_half_day ? l.half_day_period || 'yes' : '') },
+                { key: 'status', label: 'Status' },
+                { key: 'current_step_name', label: 'Waiting at' },
+                { key: 'reason', label: 'Reason' },
+                { label: 'Applied on', value: (l) => (l.created_at ? String(l.created_at).slice(0, 10) : '') },
+              ])}
+            >
+              <Download className="w-3.5 h-3.5" /> Export
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="p-3 sm:p-6 pt-0 sm:pt-0">
           {leaves.length > 0 ? (
@@ -1406,6 +1601,11 @@ const LeavesPage = () => {
                           </Badge>
                         )}
                       </div>
+                      {leave.sandwich_days > 0 && (
+                        <p className="mt-1 text-[11px] sm:text-xs text-amber-700">
+                          Includes {leave.sandwich_days} sandwiched day{leave.sandwich_days > 1 ? 's' : ''} ({(leave.sandwich_dates || []).map(d => fmtKey(d, 'dd MMM')).join(', ')})
+                        </p>
+                      )}
                       {leave.dates && leave.dates.length > 1 && !areDatesConsecutive(leave.dates) && (
                         <div className="mt-1.5 sm:mt-2 flex flex-wrap gap-1">
                           {leave.dates
@@ -1430,6 +1630,12 @@ const LeavesPage = () => {
                       {leave.reason}
                     </p>
                   </div>
+                  {Array.isArray(leave.approval_chain) && leave.approval_chain.length > 0 && leave.status !== 'rejected' && leave.status !== 'approved' && (
+                    <div className="mt-2 sm:mt-3">
+                      <p className="text-[10px] sm:text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Approval progress</p>
+                      <ApprovalChain chain={leave.approval_chain} />
+                    </div>
+                  )}
                   {leave.approvals && leave.approvals.length > 0 && (
                     <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-slate-200">
                       <p className="text-[10px] sm:text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5 sm:mb-2">Approval History</p>
@@ -1438,9 +1644,11 @@ const LeavesPage = () => {
                           <div key={idx} className="text-[11px] sm:text-sm">
                             <span className="font-medium text-slate-700">{approval.approver_name}</span>
                             <span className="text-slate-500"> ({approval.approver_role}) </span>
-                            <span className={approval.action === 'approve' ? 'text-emerald-600' : 'text-red-600'}>
-                              {approval.action === 'approve' ? 'approved' : 'rejected'}
+                            <span className={approval.action === 'approve' ? 'text-emerald-600' : approval.action === 'reject' ? 'text-red-600' : 'text-slate-600'}>
+                              {approval.action === 'approve' ? 'approved' : approval.action === 'reject' ? 'rejected' : approval.action}
                             </span>
+                            {approval.step_name && <span className="text-slate-500"> ({approval.step_name})</span>}
+                            {approval.on_behalf_of_name && <span className="text-slate-500"> on behalf of {approval.on_behalf_of_name}</span>}
                             {approval.comments && (
                               <p className="text-slate-600 mt-0.5 sm:mt-1">Comment: {approval.comments}</p>
                             )}

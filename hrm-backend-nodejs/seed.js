@@ -1,11 +1,11 @@
-const { MongoClient, ObjectId } = require('mongodb');
+const { PgDocClient, ObjectId } = require('./db/pgdoc');
 const bcrypt = require('bcryptjs');
 const { faker } = require('@faker-js/faker');
 require('dotenv').config();
 
 // Configuration
 const CONFIG = {
-  MONGO_URL: process.env.MONGO_URL || 'mongodb://localhost:27017',
+  DATABASE_URL: process.env.DATABASE_URL || 'postgres://postgres@localhost:5432/hrms',
   DB_NAME: process.env.DB_NAME || 'hrms',
   MONTHS_OF_HISTORY: 3
 };
@@ -36,8 +36,8 @@ class HRMSSeeder {
   }
 
   async connect() {
-    console.log('🔌 Connecting to MongoDB...');
-    this.client = new MongoClient(CONFIG.MONGO_URL);
+    console.log('🔌 Connecting to PostgreSQL...');
+    this.client = new PgDocClient(CONFIG.DATABASE_URL);
     await this.client.connect();
     this.db = this.client.db(CONFIG.DB_NAME);
     console.log(`✅ Connected to database: ${CONFIG.DB_NAME}`);

@@ -9,8 +9,8 @@ const config = {
   host: process.env.HOST || '0.0.0.0',
   port: parseInt(process.env.PORT || '8000', 10),
 
-  // MongoDB
-  mongoUrl: process.env.MONGO_URL || 'mongodb://localhost:27017',
+  // PostgreSQL (DATABASE_URL = server + database, DB_NAME = schema)
+  databaseUrl: process.env.DATABASE_URL || 'postgres://postgres@localhost:5432/hrms',
   dbName: process.env.DB_NAME || 'hrms_production',
 
   // JWT

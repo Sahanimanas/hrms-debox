@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, Plus, Pencil, Trash2, Upload } from 'lucide-react';
+import { Building2, Plus, Pencil, Trash2, Upload, Download } from 'lucide-react';
+import { exportCsv } from '@/lib/exportCsv';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -28,7 +29,7 @@ const OrganizationsPage = () => {
     try {
       const response = await api.get('/organizations');
       setOrganizations(response.data);
-    } catch (error) {
+    } catch {
       toast.error('Failed to load organizations');
     } finally {
       setLoading(false);
@@ -132,14 +133,30 @@ const OrganizationsPage = () => {
             </h1>
             <p className="text-slate-600 mt-2">Manage your organizations and their settings</p>
           </div>
-          
-          <Button
-            onClick={handleAddNew}
-            className="bg-slate-800 hover:bg-slate-900 rounded-full"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Organization
-          </Button>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              className="rounded-full"
+              disabled={!organizations.length}
+              onClick={() => exportCsv('organizations', organizations, [
+                { key: 'name', label: 'Name' },
+                { key: 'description', label: 'Description' },
+                { key: 'logo_url', label: 'Logo URL' },
+                { key: 'id', label: 'Organization ID' },
+              ])}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
+            <Button
+              onClick={handleAddNew}
+              className="bg-slate-800 hover:bg-slate-900 rounded-full"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Organization
+            </Button>
+          </div>
         </div>
 
         {/* Organizations Grid */}

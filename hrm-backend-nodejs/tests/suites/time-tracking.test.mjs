@@ -1,0 +1,117 @@
+// Phase 1 — shifts, clock-in/out, attendance requests, daily report (TA-1 … TA-8)
+import { run, section, check, get, post, put, del, bootstrap, createUser } from '../lib/harness.mjs';
+
+const addDays = (dateStr, n) => new Date(Date.parse(`${dateStr}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+
+await run(async () => {
+  const admin = await bootstrap();
+  const mgr = await createUser(admin, { role: 'manager', name: 'Maya Manager' });
+  const emp = await createUser(admin, { role: 'employee', name: 'Eli Employee', manager_email: mgr.email });
+
+  section('TA-1 Shifts');
+  let r = await post('/time/shifts', emp.token, { name: 'X', start_time: '09:00', end_time: '18:00' });
+  check('employee cannot create a shift', r.s === 403, r);
+  r = await post('/time/shifts', admin, { name: 'Bad', start_time: '9am', end_time: '18:00' });
+  check('invalid time format rejected', r.s === 422, r);
+  r = await post('/time/shifts', admin, { name: 'Bad', start_time: '09:00', end_time: '18:00', half_day_minutes: 600, full_day_minutes: 480 });
+  check('half-day hours above full-day rejected', r.s === 400, r);
+  r = await post('/time/shifts', admin, { name: 'Anytime', start_time: '00:00', end_time: '23:59', grace_minutes: 0, half_day_minutes: 0, full_day_minutes: 1, weekly_offs: [] });
+  check('create shift', r.s === 201, r);
+  const shiftId = r.d?.id;
+  r = await get('/time/shifts', emp.token);
+  check('first shift becomes the default', r.d?.shifts?.some(s => s.id === shiftId && s.is_default), r.d);
+  r = await post('/time/shifts', admin, { name: 'Night', start_time: '22:00', end_time: '06:00' });
+  const nightId = r.d?.id;
+  check('second shift is not default', r.s === 201 && r.d.is_default === false, r);
+  r = await put(`/time/shifts/${shiftId}`, admin, { is_default: false });
+  check('cannot unset the default directly', r.s === 400, r);
+  r = await get('/time/shift-roster', admin);
+  const row = r.d?.find?.(e => e.email === emp.email);
+  check('roster lists employees', !!row, r.d);
+  r = await put('/time/shifts-assign', admin, { shift_id: shiftId, employee_ids: [row.employee_id] });
+  check('assign shift to employee', r.s === 200 && r.d.matched === 1, r);
+  r = await del(`/time/shifts/${nightId}`, admin);
+  check('delete non-default shift', r.s === 200, r);
+
+  section('TA-2/3/4 Clock in and out');
+  r = await get('/time/today', emp.token);
+  check('today: not clocked in, on assigned shift', r.d?.has_profile && !r.d.clocked_in && r.d.shift?.id === shiftId, r.d);
+  const today = r.d.date;
+  r = await post('/time/clock-out', emp.token, {});
+  check('cannot clock out before clocking in', r.s === 400, r);
+  r = await post('/time/clock-in', emp.token, { latitude: 12.97, longitude: 77.59, accuracy: 20 });
+  check('clock in records location', r.s === 201 && r.d.clock_in_location?.latitude === 12.97, r);
+  r = await post('/time/clock-in', emp.token, {});
+  check('double clock-in blocked', r.s === 400, r);
+  r = await get('/time/today', emp.token);
+  check('today: clocked in', r.d?.clocked_in === true, r.d);
+  r = await post('/time/clock-out', emp.token, {});
+  check('clock out computes metrics (0 worked → half-day on this shift)', r.s === 200 && r.d.clock_out && r.d.status === 'half-day' && r.d.worked_minutes === 0, r.d);
+  r = await post('/time/clock-in', emp.token, {});
+  check('cannot clock in again after clocking out', r.s === 400, r);
+  const [y, m, d] = today.split('-').map(Number);
+  r = await get(`/attendance?month=${m}&year=${y}`, admin);
+  const grid = r.d?.employees?.find(e => e.email === emp.email);
+  check('punch mirrored into the attendance grid', grid?.attendance?.[d] === 'half-day', grid);
+
+  section('TA-7 My attendance');
+  r = await get(`/time/my-logs?month=${m}&year=${y}`, emp.token);
+  check('my logs list today', r.s === 200 && r.d.logs.length === 1 && r.d.summary.half_days === 1, r.d);
+
+  section('TA-5/6 Attendance requests');
+  const yest = addDays(today, -1);
+  const tomorrow = addDays(today, 1);
+  r = await post('/time/requests', emp.token, { type: 'missed_punch', date: tomorrow, clock_in: '09:30', reason: 'x' });
+  check('future correction rejected', r.s === 400, r);
+  r = await post('/time/requests', emp.token, { type: 'missed_punch', date: yest, reason: 'x' });
+  check('correction without times rejected', r.s === 400, r);
+  r = await post('/time/requests', emp.token, { type: 'missed_punch', date: yest, clock_in: '18:00', clock_out: '09:30', reason: 'x' });
+  check('clock-out before clock-in rejected', r.s === 400, r);
+  r = await post('/time/requests', emp.token, { type: 'missed_punch', date: yest, clock_in: '09:45', clock_out: '18:40', reason: 'Forgot to punch' });
+  check('create correction request', r.s === 201, r);
+  const correctionId = r.d?.id;
+  r = await post('/time/requests', emp.token, { type: 'wfh', date: yest, reason: 'dup' });
+  check('second pending request for same date blocked', r.s === 400, r);
+  r = await post('/time/requests', emp.token, { type: 'wfh', date: tomorrow, reason: 'Plumber visit' });
+  check('create future WFH request', r.s === 201, r);
+  const wfhId = r.d?.id;
+  r = await get('/time/requests', emp.token);
+  check('employee cannot list team requests', r.s === 403, r);
+  r = await get('/time/requests', mgr.token);
+  check('manager sees team request', r.d?.some?.(x => x.id === correctionId), r.d);
+  r = await get('/time/requests/my', emp.token);
+  check('employee sees own requests', r.d?.length === 2, r.d);
+  r = await post(`/time/requests/${correctionId}/action`, mgr.token, { action: 'approve', comments: 'ok' });
+  check('manager approves correction', r.s === 200 && r.d.status === 'approved', r);
+  r = await post(`/time/requests/${correctionId}/action`, mgr.token, { action: 'approve' });
+  check('cannot act on a request twice', r.s === 400, r);
+  const [yy, ym, yd] = yest.split('-').map(Number);
+  r = await get(`/attendance?month=${ym}&year=${yy}`, admin);
+  check('approved correction marks grid present', r.d?.employees?.find(e => e.email === emp.email)?.attendance?.[yd] === 'present');
+  r = await post(`/time/requests/${wfhId}/action`, admin, { action: 'reject', comments: 'Need you in office' });
+  check('admin rejects WFH', r.s === 200 && r.d.status === 'rejected', r);
+  r = await post('/time/requests', mgr.token, { type: 'on_duty', date: yest, reason: 'Client visit' });
+  const mgrReq = r.d?.id;
+  r = await post(`/time/requests/${mgrReq}/action`, mgr.token, { action: 'approve' });
+  check('manager cannot approve own request', r.s === 403, r);
+  r = await post(`/time/requests/${mgrReq}/action`, admin, { action: 'approve' });
+  check('admin approves on-duty using shift hours', r.s === 200, r);
+  r = await post('/time/requests', emp.token, { type: 'wfh', date: addDays(today, 3), reason: 'again' });
+  r = await del(`/time/requests/${r.d.id}`, mgr.token);
+  check("cannot withdraw someone else's request", r.s === 403, r);
+  r = await get('/notifications', mgr.token);
+  check('manager notified of new request', JSON.stringify(r.d).includes('attendance_request_applied'));
+
+  section('TA-8 Daily report');
+  r = await get(`/time/daily-report?date=${yest}`, admin);
+  const rep = r.d?.rows?.find(x => x.email === emp.email);
+  check('daily report shows regularized log (535 min)', rep?.log?.source === 'regularization' && rep.log.worked_minutes === 535, rep);
+  r = await get(`/time/daily-report?date=${yest}`, mgr.token);
+  check('manager report is limited to their team', r.s === 200 && !r.d.rows.some(x => x.email === mgr.email) && r.d.rows.some(x => x.email === emp.email), r.d?.rows?.map(x => x.email));
+  r = await get('/time/daily-report', emp.token);
+  check('employee cannot see daily report', r.s === 403, r);
+
+  section('Shift deletion');
+  r = await del(`/time/shifts/${shiftId}`, admin);
+  check('deleting the only shift moves employees to default', r.s === 200 && r.d.employees_moved_to_default === 1, r);
+});

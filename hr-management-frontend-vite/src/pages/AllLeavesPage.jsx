@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Edit2, X, Check, Clock, Filter, Search, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Calendar, Edit2, X, Check, Filter, Search, ChevronLeft, ChevronRight, Trash2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { format } from 'date-fns';
+import { exportCsv } from '@/lib/exportCsv';
+import ApprovalChain from '@/modules/leave/components/ApprovalChain';
+import { fmtKey, toDateKey } from '@/modules/leave/lib';
+
+const FALLBACK_TYPES = ['Earned Leave', 'Sick Leave', 'Casual Leave', 'Paid Leave', 'Unpaid Leave', 'Comp Off'];
 
 const AllLeavesPage = () => {
   const [leaves, setLeaves] = useState([]);
@@ -21,6 +26,7 @@ const AllLeavesPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterType, setFilterType] = useState('all');
+  const [typeNames, setTypeNames] = useState(FALLBACK_TYPES);
 
   // Edit dialog states
   const [editDates, setEditDates] = useState([]);
@@ -28,6 +34,12 @@ const AllLeavesPage = () => {
 
   useEffect(() => {
     fetchAllLeaves();
+    api.get('/leaves/leave-policy')
+      .then((res) => {
+        const names = (res.data?.policies || []).map((p) => p.leave_type);
+        if (names.length) setTypeNames([...new Set([...names, 'Comp Off'])]);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -94,10 +106,7 @@ const AllLeavesPage = () => {
       ...leave,
     });
     // Convert dates to YYYY-MM-DD format for editing
-    const formattedDates = (leave.dates || []).map(d => {
-      const date = new Date(d);
-      return format(date, 'yyyy-MM-dd');
-    });
+    const formattedDates = (leave.dates || []).map(d => toDateKey(d));
     setEditDates(formattedDates);
 
     // Set calendar to the first date's month
@@ -119,7 +128,7 @@ const AllLeavesPage = () => {
     try {
       await api.put(`/leaves/${selectedLeave.id}`, {
         leave_type: selectedLeave.leave_type,
-        dates: editDates.map(d => new Date(d).toISOString()),
+        dates: editDates.map(d => `${d}T00:00:00.000Z`),
         reason: selectedLeave.reason,
       });
       toast.success('Leave updated successfully');
@@ -141,14 +150,14 @@ const AllLeavesPage = () => {
       toast.success('Leave cancelled successfully');
       fetchAllLeaves();
     } catch (error) {
-      toast.error('Failed to cancel leave');
+      toast.error(error.response?.data?.detail || 'Failed to cancel leave');
     }
   };
 
   const getStatusBadge = (status) => {
     const statusMap = {
       pending: { color: 'bg-yellow-100 text-yellow-700 border-yellow-200', text: 'Pending' },
-      manager_approved: { color: 'bg-amber-100 text-amber-700 border-amber-200', text: 'Manager Approved' },
+      manager_approved: { color: 'bg-amber-100 text-amber-700 border-amber-200', text: 'Partly approved' },
       approved: { color: 'bg-green-100 text-green-700 border-green-200', text: 'Approved' },
       rejected: { color: 'bg-red-100 text-red-700 border-red-200', text: 'Rejected' },
     };
@@ -260,17 +269,40 @@ const AllLeavesPage = () => {
   }
 
   return (
-    <div className="p-6 md:p-10 space-y-6">
+    <div className="p-3 sm:p-6 md:p-10 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-4xl font-bold text-slate-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-          All Employee Leaves
-        </h1>
-        <p className="text-lg text-slate-600">View and manage all leave applications</p>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-slate-900 mb-1 sm:mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            All Employee Leaves
+          </h1>
+          <p className="text-sm sm:text-lg text-slate-600">View and manage all leave applications</p>
+        </div>
+        <Button
+          variant="outline"
+          className="gap-2 w-full sm:w-auto"
+          disabled={!filteredLeaves.length}
+          onClick={() => exportCsv('all-leaves', filteredLeaves, [
+            { key: 'employee_name', label: 'Employee' },
+            { key: 'employee_email', label: 'Email' },
+            { key: 'department', label: 'Department' },
+            { key: 'leave_type', label: 'Leave type' },
+            { label: 'Dates', value: (l) => (l.dates || []).map(toDateKey).join(' ') },
+            { key: 'days_count', label: 'Days charged' },
+            { key: 'sandwich_days', label: 'Sandwich days' },
+            { label: 'Half day', value: (l) => (l.is_half_day ? l.half_day_period || 'yes' : '') },
+            { key: 'status', label: 'Status' },
+            { key: 'current_step_name', label: 'Waiting at' },
+            { key: 'reason', label: 'Reason' },
+            { label: 'Applied on', value: (l) => (l.created_at ? String(l.created_at).slice(0, 10) : '') },
+          ])}
+        >
+          <Download className="w-4 h-4" /> Export CSV
+        </Button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
         <Card className="border-slate-100 shadow-sm">
           <CardContent className="p-4">
             <p className="text-sm text-slate-500 mb-1">Total Leaves</p>
@@ -312,28 +344,25 @@ const AllLeavesPage = () => {
         </div>
         <div className="flex gap-2">
           <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-full sm:w-40">
               <Filter className="w-4 h-4 mr-2" />
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="manager_approved">Manager Approved</SelectItem>
+              <SelectItem value="manager_approved">Partly approved</SelectItem>
               <SelectItem value="approved">Approved</SelectItem>
               <SelectItem value="rejected">Rejected</SelectItem>
             </SelectContent>
           </Select>
           <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-full sm:w-40">
               <SelectValue placeholder="Type" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="Sick Leave">Sick Leave</SelectItem>
-              <SelectItem value="Casual Leave">Casual Leave</SelectItem>
-              <SelectItem value="Paid Leave">Paid Leave</SelectItem>
-              <SelectItem value="Unpaid Leave">Unpaid Leave</SelectItem>
+              {typeNames.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -354,12 +383,12 @@ const AllLeavesPage = () => {
                 return (
                   <div
                     key={leave.id}
-                    className="p-5 bg-slate-50 rounded-xl border border-slate-200 hover:border-slate-300 transition-all"
+                    className="p-3 sm:p-5 bg-slate-50 rounded-xl border border-slate-200 hover:border-slate-300 transition-all"
                   >
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h3 className="font-semibold text-slate-900 text-lg">{leave.employee_name}</h3>
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2">
+                          <h3 className="font-semibold text-slate-900 text-base sm:text-lg">{leave.employee_name}</h3>
                           <Badge className={`${statusBadge.color} border`}>
                             {statusBadge.text}
                           </Badge>
@@ -407,6 +436,11 @@ const AllLeavesPage = () => {
                             <span> • Half Day ({leave.half_day_period})</span>
                           )}
                         </p>
+                        {leave.sandwich_days > 0 && (
+                          <p className="text-xs text-amber-700 mt-1">
+                            incl. {leave.sandwich_days} sandwich day{leave.sandwich_days > 1 ? 's' : ''} ({(leave.sandwich_dates || []).map((d) => fmtKey(d, 'dd MMM')).join(', ')})
+                          </p>
+                        )}
                       </div>
                       <div className="bg-white p-3 rounded-lg border border-slate-200">
                         <p className="text-xs text-slate-500 mb-1">Applied On</p>
@@ -440,6 +474,13 @@ const AllLeavesPage = () => {
                       <p className="text-sm text-slate-700">{leave.reason}</p>
                     </div>
 
+                    {Array.isArray(leave.approval_chain) && leave.approval_chain.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5">Approval levels</p>
+                        <ApprovalChain chain={leave.approval_chain} />
+                      </div>
+                    )}
+
                     {leave.approvals && leave.approvals.length > 0 && (
                       <div className="mt-3 pt-3 border-t border-slate-200">
                         <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
@@ -447,7 +488,7 @@ const AllLeavesPage = () => {
                         </p>
                         <div className="space-y-2">
                           {leave.approvals.map((approval, idx) => (
-                            <div key={idx} className="flex items-center gap-2 text-sm">
+                            <div key={idx} className="flex flex-wrap items-center gap-2 text-sm">
                               {approval.action === 'approve' ? (
                                 <Check className="w-4 h-4 text-green-600" />
                               ) : (
@@ -455,9 +496,10 @@ const AllLeavesPage = () => {
                               )}
                               <span className="font-medium text-slate-700">{approval.approver_name}</span>
                               <span className="text-slate-500">({approval.approver_role})</span>
-                              <span className={approval.action === 'approve' ? 'text-green-600' : 'text-red-600'}>
-                                {approval.action === 'approve' ? 'approved' : 'rejected'}
+                              <span className={approval.action === 'approve' ? 'text-green-600' : approval.action === 'reject' ? 'text-red-600' : 'text-slate-600'}>
+                                {approval.action === 'approve' ? 'approved' : approval.action === 'reject' ? 'rejected' : approval.action}
                               </span>
+                              {approval.on_behalf_of_name && <span className="text-slate-500">for {approval.on_behalf_of_name}</span>}
                               {approval.comments && (
                                 <span className="text-slate-600 ml-2">- {approval.comments}</span>
                               )}
@@ -503,10 +545,7 @@ const AllLeavesPage = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Sick Leave">Sick Leave</SelectItem>
-                    <SelectItem value="Casual Leave">Casual Leave</SelectItem>
-                    <SelectItem value="Paid Leave">Paid Leave</SelectItem>
-                    <SelectItem value="Unpaid Leave">Unpaid Leave</SelectItem>
+                    {[...new Set([...typeNames, selectedLeave.leave_type])].map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

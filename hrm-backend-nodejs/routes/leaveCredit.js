@@ -15,6 +15,15 @@ const { UserRole } = require('../models/schemas');
 const { creditMonthlyLeaves, LEAVE_CREDIT_RULES, initializeLeaveBalance } = require('../cron/monthlyLeaveCredit');
 const { normalizeLeaveType } = require('../utils/helpers');
 const { createNotification, NotificationType } = require('../services/notificationService');
+const { getPolicyDoc } = require('../services/leave/common');
+
+const BASE_LEAVE_KEYS = ['casual_leave', 'sick_leave', 'earned_leave', 'comp_off', 'unpaid_leave'];
+
+/** Balance keys an admin may adjust: the legacy ones plus every leave type in the policy. */
+async function allowedLeaveKeys(db) {
+  const policyDoc = await getPolicyDoc(db);
+  return [...new Set([...BASE_LEAVE_KEYS, ...(policyDoc.policies || []).map(p => normalizeLeaveType(p.leave_type))])];
+}
 
 /**
  * GET /api/admin/leave-credit/rules
@@ -32,10 +41,11 @@ router.get('/rules', authenticate, requireRole([UserRole.ADMIN]), async (req, re
       monthly_credit: "1st of every month at 00:01 AM"
     },
     january_reset: {
-      casual_leave: "Reset to 6",
-      sick_leave: "Reset to 0, then +0.5 = 0.5",
-      earned_leave: "Reset to 0"
-    }
+      casual_leave: "Reset to 6 (+ days carried forward)",
+      sick_leave: "Reset to 0, then +0.5 = 0.5 (+ days carried forward)",
+      earned_leave: "Reset to 0 (+ days carried forward)"
+    },
+    year_end: "Before the January reset the previous year is closed per the leave policy: carry forward up to max_carry_forward_days, encash the excess for encashable types, lapse the rest. Each employee is reset once per year and credited once per month."
   });
 });
 
@@ -60,8 +70,8 @@ router.post('/leave-balance/bulk-update', authenticate, requireRole([UserRole.AD
       return res.status(400).json({ detail: 'Invalid action_type. Must be set, add, or deduct.' });
     }
 
-    const validLeaveTypes = ['casual_leave', 'sick_leave', 'earned_leave', 'comp_off', 'unpaid_leave'];
-    const leaveKey = normalizeLeaveType(leave_type);
+    const validLeaveTypes = await allowedLeaveKeys(db);
+    const leaveKey = normalizeLeaveType(String(leave_type || ''));
 
     if (!validLeaveTypes.includes(leaveKey)) {
       return res.status(400).json({ detail: 'Invalid leave_type' });
@@ -169,8 +179,8 @@ router.post('/leave-balance/update/:employeeId', authenticate, requireRole([User
       return res.status(400).json({ detail: 'Invalid action_type. Must be set, add, or deduct.' });
     }
 
-    const validLeaveTypes = ['casual_leave', 'sick_leave', 'earned_leave', 'comp_off', 'unpaid_leave'];
-    const leaveKey = normalizeLeaveType(leave_type);
+    const validLeaveTypes = await allowedLeaveKeys(db);
+    const leaveKey = normalizeLeaveType(String(leave_type || ''));
 
     if (!validLeaveTypes.includes(leaveKey)) {
       return res.status(400).json({ detail: 'Invalid leave_type' });
@@ -299,13 +309,16 @@ router.post('/leave-balance/update/:employeeId', authenticate, requireRole([User
 router.post('/run-monthly', authenticate, requireRole([UserRole.ADMIN]), async (req, res) => {
   try {
     const db = getDB();
-    const { simulate_date } = req.body;
+    const { simulate_date, force } = req.body || {};
 
     const creditDate = simulate_date ? new Date(simulate_date) : new Date();
+    if (isNaN(creditDate)) {
+      return res.status(400).json({ detail: 'Invalid simulate_date' });
+    }
 
     console.log(`\n🔄 Manual trigger: Monthly leave credit for ${creditDate.toDateString()}`);
 
-    const results = await creditMonthlyLeaves(db, creditDate);
+    const results = await creditMonthlyLeaves(db, creditDate, { force: force === true, by: req.user.email });
 
     res.json({
       status: 'success',
@@ -738,7 +751,7 @@ router.get('/leave-balance/summary', authenticate, requireRole([UserRole.ADMIN])
       leave_types: {}
     };
 
-    const leaveTypes = ['casual_leave', 'sick_leave', 'earned_leave', 'comp_off'];
+    const leaveTypes = (await allowedLeaveKeys(db)).filter(k => k !== 'unpaid_leave');
 
     for (const leaveType of leaveTypes) {
       const balances = employees.map(e => e.leave_balance?.[leaveType] || 0);

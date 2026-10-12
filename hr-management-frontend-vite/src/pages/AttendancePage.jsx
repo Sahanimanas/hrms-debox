@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { getAuth } from '@/lib/auth';
+import { exportCsv } from '@/lib/exportCsv';
 
 const AttendancePage = () => {
   const { user } = getAuth();
@@ -62,7 +63,7 @@ const AttendancePage = () => {
                 description: holiday.description
               };
             }
-          } catch (e) {
+          } catch {
             console.warn('Failed to parse holiday date:', holiday.date);
           }
         });
@@ -310,6 +311,30 @@ const AttendancePage = () => {
                 {saving ? 'Saving...' : `Save Changes (${Object.keys(pendingChanges).length})`}
               </Button>
             )}
+
+            <Button
+              variant="outline"
+              disabled={!employees.length}
+              onClick={() => {
+                const dayCols = Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => ({
+                  label: `${day} ${getDayName(day)}`,
+                  value: (e) => getCellStatus(e, day),
+                }));
+                exportCsv(`attendance-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.csv`, employees, [
+                  { key: 'employee_id', label: 'Employee ID' },
+                  { key: 'full_name', label: 'Name' },
+                  { key: 'department', label: 'Department' },
+                  ...dayCols,
+                  { label: 'Present', value: (e) => calculateSummary(e).present },
+                  { label: 'Absent', value: (e) => calculateSummary(e).absent },
+                  { label: 'Half day', value: (e) => calculateSummary(e).halfDay },
+                  { label: 'Leave', value: (e) => calculateSummary(e).leave },
+                ]);
+              }}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
 
             <Button onClick={handleDownloadXLSX} disabled={downloading} className="bg-slate-800 hover:bg-slate-900">
               <Download className="w-4 h-4 mr-2" />

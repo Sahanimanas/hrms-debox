@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Gift, Calendar, Search, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle, User } from 'lucide-react';
+import { Gift, Calendar, Search, Clock, CheckCircle, XCircle, AlertCircle, AlertTriangle, User, Download } from 'lucide-react';
+import { exportCsv } from '@/lib/exportCsv';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -245,13 +246,36 @@ const CompOffPage = () => {
   return (
     <div className="p-6 md:p-10 space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-4xl font-bold text-slate-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-          Comp-Off Management
-        </h1>
-        <p className="text-lg text-slate-600">
-          Grant compensatory off for employees who work extra hours or holidays
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-4xl font-bold text-slate-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Comp-Off Management
+          </h1>
+          <p className="text-lg text-slate-600">
+            Grant compensatory off for employees who work extra hours or holidays
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          className="gap-2 self-start sm:self-auto"
+          disabled={!compOffRecords.length}
+          onClick={() => {
+            const nameByEmail = Object.fromEntries(employees.map(e => [e.email, e.full_name]));
+            exportCsv('comp-off-records', compOffRecords, [
+              { label: 'Employee', value: (r) => r.employee_name || nameByEmail[r.employee_email] || '' },
+              { key: 'employee_email', label: 'Email' },
+              { label: 'Work date', value: (r) => String(r.work_date || '').slice(0, 10) },
+              { key: 'days', label: 'Days' },
+              { key: 'remaining_days', label: 'Remaining days' },
+              { label: 'Expires', value: (r) => String(r.expiry_date || '').slice(0, 10) },
+              { key: 'status', label: 'Status' },
+              { key: 'reason', label: 'Reason' },
+              { label: 'Granted by', value: (r) => (typeof r.granted_by === 'object' ? r.granted_by?.name || r.granted_by?.email : r.granted_by) || '' },
+            ]);
+          }}
+        >
+          <Download className="w-4 h-4" /> Export CSV
+        </Button>
       </div>
 
       {/* <div className="bg-gradient-to-r from-purple-50 to-amber-50 border border-purple-200 rounded-lg p-4"> */}

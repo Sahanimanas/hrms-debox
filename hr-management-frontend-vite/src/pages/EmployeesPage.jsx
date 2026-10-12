@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, User, Mail, Phone, Briefcase, Edit2, Search, Filter, Calendar } from 'lucide-react';
+import { Plus, User, Mail, Phone, Briefcase, Edit2, Search, Filter, Calendar, History, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -11,6 +11,14 @@ import { toast } from 'sonner';
 import api from '@/lib/api';
 import { getAuth } from '@/lib/auth';
 import { format } from 'date-fns';
+import { exportCsv } from '@/lib/exportCsv';
+import EmployeeLifecycleDialog from '@/modules/lifecycle/components/EmployeeLifecycleDialog';
+
+const EMPLOYMENT_STATUS_BADGE = {
+  probation: 'bg-amber-100 text-amber-700',
+  notice: 'bg-orange-100 text-orange-700',
+  exited: 'bg-slate-200 text-slate-600',
+};
 
 const EmployeesPage = () => {
   const [employees, setEmployees] = useState([]);
@@ -27,6 +35,7 @@ const EmployeesPage = () => {
   const [filterOrganization, setFilterOrganization] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [organizations, setOrganizations] = useState([]);
+  const [lifecycleUid, setLifecycleUid] = useState(null);
 
   const [employeeForm, setEmployeeForm] = useState({
     email: '',
@@ -37,6 +46,8 @@ const EmployeesPage = () => {
     organization_id: 'none',
     manager_email: '',
     joining_date: new Date().toISOString().split('T')[0], // Default to today
+    date_of_birth: '',
+    gender: '',
   });
 
   useEffect(() => {
@@ -95,6 +106,8 @@ const EmployeesPage = () => {
         organization_id: (employeeForm.organization_id && employeeForm.organization_id !== 'none') ? employeeForm.organization_id : null,
         manager_email: employeeForm.manager_email === 'none' ? '' : employeeForm.manager_email,
         joining_date: employeeForm.joining_date ? new Date(employeeForm.joining_date).toISOString() : new Date().toISOString(),
+        date_of_birth: employeeForm.date_of_birth || null,
+        gender: employeeForm.gender || null,
       });
       toast.success('Employee added successfully!');
       setDialogOpen(false);
@@ -107,6 +120,8 @@ const EmployeesPage = () => {
         organization_id: 'none',
         manager_email: '',
         joining_date: new Date().toISOString().split('T')[0],
+        date_of_birth: '',
+        gender: '',
       });
       fetchEmployees();
     } catch (error) {
@@ -387,6 +402,37 @@ const EmployeesPage = () => {
                   <p className="text-xs text-slate-500 mt-1">Manager will approve leave requests</p>
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="emp-dob">Date of birth</Label>
+                    <Input
+                      id="emp-dob"
+                      type="date"
+                      max={new Date().toISOString().split('T')[0]}
+                      value={employeeForm.date_of_birth}
+                      onChange={(e) => setEmployeeForm({ ...employeeForm, date_of_birth: e.target.value })}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="emp-gender">Gender</Label>
+                    <select
+                      id="emp-gender"
+                      value={employeeForm.gender}
+                      onChange={(e) => setEmployeeForm({ ...employeeForm, gender: e.target.value })}
+                      className="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                    >
+                      <option value="">—</option>
+                      <option value="female">Female</option>
+                      <option value="male">Male</option>
+                      <option value="non_binary">Non-binary</option>
+                      <option value="other">Other</option>
+                      <option value="prefer_not_to_say">Prefer not to say</option>
+                    </select>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 -mt-1">A probation period and an onboarding checklist start automatically.</p>
+
                 <div>
                   <Label htmlFor="emp-password">Temporary Password *</Label>
                   <Input
@@ -656,6 +702,28 @@ const EmployeesPage = () => {
 
       {/* Search and Filters */}
       <div className="flex flex-col sm:flex-row gap-4 bg-white p-4 rounded-lg border border-slate-200">
+        <Button
+          variant="outline"
+          className="gap-2 sm:order-last"
+          disabled={!filteredEmployees.length}
+          onClick={() => exportCsv('employees', filteredEmployees, [
+            { key: 'employee_id', label: 'Employee ID' },
+            { key: 'full_name', label: 'Name' },
+            { key: 'email', label: 'Email' },
+            { key: 'phone', label: 'Phone' },
+            { key: 'role', label: 'Role' },
+            { key: 'department', label: 'Department' },
+            { key: 'designation', label: 'Designation' },
+            { key: 'manager_name', label: 'Manager' },
+            { label: 'Joining date', value: (r) => (r.joining_date ? format(new Date(r.joining_date), 'yyyy-MM-dd') : '') },
+            { label: 'Status', value: (r) => r.employment_status || 'active' },
+            { label: 'Probation ends', value: (r) => (r.probation_end_date ? format(new Date(r.probation_end_date), 'yyyy-MM-dd') : '') },
+            { label: 'Exit date', value: (r) => (r.exit_date ? format(new Date(r.exit_date), 'yyyy-MM-dd') : '') },
+          ])}
+        >
+          <Download className="w-4 h-4" />
+          Export CSV
+        </Button>
         <div className="flex-1">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
@@ -743,8 +811,25 @@ const EmployeesPage = () => {
                       {employee.employee_id}
                     </span>
                   </div>
-                  <Badge className="mt-1 capitalize">{employee.role}</Badge>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    <Badge className="capitalize">{employee.role}</Badge>
+                    {EMPLOYMENT_STATUS_BADGE[employee.employment_status] && (
+                      <Badge className={`${EMPLOYMENT_STATUS_BADGE[employee.employment_status]} hover:opacity-90 capitalize`}>
+                        {employee.employment_status === 'notice' ? 'Notice period' : employee.employment_status}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setLifecycleUid(employee.id)}
+                  className="text-slate-500 hover:text-slate-700"
+                  title="Lifecycle & job history"
+                  aria-label="Lifecycle and job history"
+                >
+                  <History className="w-4 h-4" />
+                </Button>
                 {user?.role === 'admin' && (
                   <Button
                     variant="ghost"
@@ -841,6 +926,12 @@ const EmployeesPage = () => {
           </CardContent>
         </Card>
       )}
+      <EmployeeLifecycleDialog
+        uid={lifecycleUid}
+        open={!!lifecycleUid}
+        onOpenChange={(o) => { if (!o) setLifecycleUid(null); }}
+        isAdmin={user?.role === 'admin'}
+      />
     </div>
   );
 };

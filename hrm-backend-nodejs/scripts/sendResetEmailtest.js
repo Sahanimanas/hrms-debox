@@ -10,7 +10,7 @@
 
 require('dotenv').config();
 const crypto = require('crypto');
-const { MongoClient } = require('mongodb');
+const { PgDocClient } = require('../db/pgdoc');
 const Mailjet = require('node-mailjet');
 
 // Configuration
@@ -170,22 +170,22 @@ async function main() {
 
   console.log(`🔎 Looking for employee: ${employeeId}\n`);
 
-  // Connect to MongoDB
-  const mongoUrl = process.env.MONGO_URL;
+  // Connect to PostgreSQL
+  const databaseUrl = process.env.DATABASE_URL;
   const dbName = process.env.DB_NAME || 'hrms';
 
-  if (!mongoUrl) {
-    console.error('❌ MONGO_URL not configured in .env');
+  if (!databaseUrl) {
+    console.error('❌ DATABASE_URL not configured in .env');
     process.exit(1);
   }
 
   let client;
   try {
-    client = new MongoClient(mongoUrl);
+    client = new PgDocClient(databaseUrl);
     await client.connect();
-    console.log('✅ Connected to MongoDB\n');
+    console.log('✅ Connected to PostgreSQL\n');
   } catch (error) {
-    console.error('❌ Failed to connect to MongoDB:', error.message);
+    console.error('❌ Failed to connect to PostgreSQL:', error.message);
     process.exit(1);
   }
 

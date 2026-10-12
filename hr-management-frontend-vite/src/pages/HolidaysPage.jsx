@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Plus, ChevronLeft, ChevronRight, Trash2, Edit2, X, CalendarDays, Repeat, Eye, Grid3X3, CalendarRange } from 'lucide-react';
+import { Calendar, Plus, ChevronLeft, ChevronRight, Trash2, Edit2, X, CalendarDays, Repeat, Eye, Grid3X3, CalendarRange, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import api from '@/lib/api';
 import { getAuth } from '@/lib/auth';
 import { format } from 'date-fns';
+import { exportCsv } from '@/lib/exportCsv';
 
 const HolidaysPage = () => {
   const [holidays, setHolidays] = useState([]);
@@ -607,6 +608,24 @@ const HolidaysPage = () => {
               </Button>
             </div>
           )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!holidays.length}
+            onClick={() => exportCsv(`holidays-${currentYear}.csv`, [...holidays].sort((a, b) => String(a.date).localeCompare(String(b.date))), [
+              { label: 'Date', value: (h) => (h.date && !isNaN(new Date(h.date)) ? format(new Date(h.date), 'yyyy-MM-dd') : '') },
+              { key: 'name', label: 'Holiday' },
+              { key: 'type', label: 'Type' },
+              { label: 'Recurring', value: (h) => (h.is_recurring ? 'Yes' : 'No') },
+              { key: 'description', label: 'Description' },
+            ])}
+            className="gap-1 text-xs sm:text-sm h-8 sm:h-9 px-2.5 sm:px-3"
+          >
+            <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            <span className="hidden sm:inline">Export CSV</span>
+            <span className="sm:hidden">CSV</span>
+          </Button>
 
           {isAdmin && (
             <Button

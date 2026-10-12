@@ -1,74 +1,37 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Receipt, Upload, X, Calendar, FileText, Image, Clock, CheckCircle, XCircle, Trash2, AlertTriangle, Pencil } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, Receipt, Calendar, FileText, Image, Clock, CheckCircle, XCircle, Trash2, AlertTriangle, Pencil, Download, Plane, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { format } from 'date-fns';
+import { exportCsv } from '@/lib/exportCsv';
+import ClaimDialog from '@/modules/assets/components/ClaimDialog';
+import PolicyCheckPanel from '@/modules/assets/components/PolicyCheckPanel';
+import { EXPENSE_CATEGORIES } from '@/modules/assets/lib';
+
+const safeDate = (value, pattern) => {
+  const d = new Date(value);
+  return isNaN(d) ? '—' : format(d, pattern);
+};
 
 const MyReimbursementsPage = () => {
   const [reimbursements, setReimbursements] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showApplyModal, setShowApplyModal] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
+  const [categories, setCategories] = useState(EXPENSE_CATEGORIES);
+  const [trips, setTrips] = useState([]);
+
+  // Apply / edit dialog: null = closed, {} = new claim, claim = editing
+  const [claimDialog, setClaimDialog] = useState(null);
 
   // Delete modal states
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Edit modal states
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editTarget, setEditTarget] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [editImage, setEditImage] = useState(null);
-  const [editImagePreview, setEditImagePreview] = useState(null);
-  const [removeBill, setRemoveBill] = useState(false);
-
-  // Form states
-  const [formData, setFormData] = useState({
-    title: '',
-    category: '',
-    amount: '',
-    description: '',
-    expense_date: format(new Date(), 'yyyy-MM-dd')
-  });
-
-  // Edit form states
-  const [editFormData, setEditFormData] = useState({
-    title: '',
-    category: '',
-    amount: '',
-    description: '',
-    expense_date: ''
-  });
-
-  const categories = [
-    'Travel',
-    'Food & Meals',
-    'Accommodation',
-    'Office Supplies',
-    'Equipment',
-    'Software & Tools',
-    'Training & Courses',
-    'Medical',
-    'Communication',
-    'Other'
-  ];
-
-  useEffect(() => {
-    fetchReimbursements();
-  }, []);
-
-  const fetchReimbursements = async () => {
+  const fetchReimbursements = useCallback(async () => {
     try {
       setLoading(true);
       const response = await api.get('/reimbursements/my');
@@ -79,83 +42,33 @@ const MyReimbursementsPage = () => {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const fetchOptions = useCallback(async () => {
+    const [cats, linkable] = await Promise.allSettled([
+      api.get('/v2/assets/expense-categories'),
+      api.get('/v2/assets/travel/linkable'),
+    ]);
+    if (cats.status === 'fulfilled' && Array.isArray(cats.value.data) && cats.value.data.length) setCategories(cats.value.data);
+    if (linkable.status === 'fulfilled') setTrips(linkable.value.data || []);
+  }, []);
+
+  useEffect(() => {
+    fetchReimbursements();
+  }, [fetchReimbursements]);
+
+  useEffect(() => {
+    fetchOptions();
+  }, [fetchOptions]);
+
+  const openApply = () => {
+    fetchOptions();
+    setClaimDialog({});
   };
 
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('Image size should be less than 5MB');
-        return;
-      }
-      setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeImage = () => {
-    setSelectedImage(null);
-    setImagePreview(null);
-  };
-
-  const resetForm = () => {
-    setFormData({
-      title: '',
-      category: '',
-      amount: '',
-      description: '',
-      expense_date: format(new Date(), 'yyyy-MM-dd')
-    });
-    setSelectedImage(null);
-    setImagePreview(null);
-  };
-
-  const handleSubmit = async () => {
-    if (!formData.title.trim()) {
-      toast.error('Please enter a title');
-      return;
-    }
-    if (!formData.category) {
-      toast.error('Please select a category');
-      return;
-    }
-    if (!formData.amount || parseFloat(formData.amount) <= 0) {
-      toast.error('Please enter a valid amount');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const submitData = new FormData();
-      submitData.append('title', formData.title);
-      submitData.append('category', formData.category);
-      submitData.append('amount', formData.amount);
-      submitData.append('description', formData.description);
-      submitData.append('expense_date', formData.expense_date);
-
-      if (selectedImage) {
-        submitData.append('bill_image', selectedImage);
-      }
-
-      await api.post('/reimbursements/apply', submitData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-
-      toast.success('Reimbursement request submitted successfully');
-      setShowApplyModal(false);
-      resetForm();
-      fetchReimbursements();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit request');
-    } finally {
-      setSubmitting(false);
-    }
+  const handleEditClick = (reimbursement) => {
+    fetchOptions();
+    setClaimDialog(reimbursement);
   };
 
   // Delete handlers
@@ -186,109 +99,21 @@ const MyReimbursementsPage = () => {
     setDeleteTarget(null);
   };
 
-  // Edit handlers
-  const handleEditClick = (reimbursement) => {
-    setEditTarget(reimbursement);
-    setEditFormData({
-      title: reimbursement.title || '',
-      category: reimbursement.category || '',
-      amount: reimbursement.amount?.toString() || '',
-      description: reimbursement.description || '',
-      expense_date: reimbursement.expense_date ? format(new Date(reimbursement.expense_date), 'yyyy-MM-dd') : ''
-    });
-    setEditImage(null);
-    setEditImagePreview(null);
-    setRemoveBill(false);
-    setShowEditModal(true);
-  };
-
-  const handleEditImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('Image size should be less than 5MB');
-        return;
-      }
-      setEditImage(file);
-      setRemoveBill(false);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setEditImagePreview(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeEditImage = () => {
-    setEditImage(null);
-    setEditImagePreview(null);
-  };
-
-  const handleRemoveExistingBill = () => {
-    setRemoveBill(true);
-    setEditImage(null);
-    setEditImagePreview(null);
-  };
-
-  const handleConfirmEdit = async () => {
-    if (!editTarget) return;
-
-    if (!editFormData.title.trim()) {
-      toast.error('Please enter a title');
-      return;
-    }
-    if (!editFormData.category) {
-      toast.error('Please select a category');
-      return;
-    }
-    if (!editFormData.amount || parseFloat(editFormData.amount) <= 0) {
-      toast.error('Please enter a valid amount');
-      return;
-    }
-
-    setEditing(true);
-    try {
-      const submitData = new FormData();
-      submitData.append('title', editFormData.title);
-      submitData.append('category', editFormData.category);
-      submitData.append('amount', editFormData.amount);
-      submitData.append('description', editFormData.description);
-      submitData.append('expense_date', editFormData.expense_date);
-
-      if (removeBill) {
-        submitData.append('remove_bill', 'true');
-      }
-
-      if (editImage) {
-        submitData.append('bill_image', editImage);
-      }
-
-      await api.put(`/reimbursements/${editTarget.id}`, submitData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-
-      toast.success('Reimbursement updated successfully');
-      setShowEditModal(false);
-      setEditTarget(null);
-      setEditImage(null);
-      setEditImagePreview(null);
-      setRemoveBill(false);
-      fetchReimbursements();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update reimbursement');
-    } finally {
-      setEditing(false);
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setShowEditModal(false);
-    setEditTarget(null);
-    setEditImage(null);
-    setEditImagePreview(null);
-    setRemoveBill(false);
+  const handleExport = () => {
+    exportCsv('my-reimbursements', reimbursements, [
+      { key: 'title', label: 'Title' },
+      { key: 'category', label: 'Category' },
+      { key: 'amount', label: 'Amount (INR)' },
+      { label: 'Expense date', value: (r) => String(r.expense_date || '').slice(0, 10) },
+      { key: 'status', label: 'Status' },
+      { key: 'trip_label', label: 'Trip' },
+      { label: 'Policy', value: (r) => r.policy_check?.status || '' },
+      { label: 'Policy notes', value: (r) => (r.policy_check?.violations || []).map(v => v.message).join('; ') },
+      { label: 'Receipt', value: (r) => (r.bill_url ? 'yes' : 'no') },
+      { key: 'description', label: 'Description' },
+      { key: 'admin_remarks', label: 'Admin remarks' },
+      { label: 'Submitted', value: (r) => String(r.created_at || '').slice(0, 10) },
+    ]);
   };
 
   const getStatusBadge = (status) => {
@@ -356,13 +181,24 @@ const MyReimbursementsPage = () => {
               <p className="text-xs sm:text-sm text-slate-600">Track and manage your expense reimbursements</p>
             </div>
           </div>
-          <Button
-            onClick={() => setShowApplyModal(true)}
-            className="bg-slate-800 hover:bg-slate-900 rounded-lg sm:rounded-xl shadow-md gap-1.5 sm:gap-2 text-xs sm:text-sm h-9 sm:h-10 w-full sm:w-auto"
-          >
-            <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            Apply Reimbursement
-          </Button>
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={handleExport}
+              disabled={!reimbursements.length}
+              className="rounded-lg sm:rounded-xl gap-1.5 text-xs sm:text-sm h-9 sm:h-10 flex-1 sm:flex-none"
+            >
+              <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              Export CSV
+            </Button>
+            <Button
+              onClick={openApply}
+              className="bg-slate-800 hover:bg-slate-900 rounded-lg sm:rounded-xl shadow-md gap-1.5 sm:gap-2 text-xs sm:text-sm h-9 sm:h-10 flex-1 sm:flex-none"
+            >
+              <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              Apply Reimbursement
+            </Button>
+          </div>
         </div>
 
         {/* Summary Cards */}
@@ -426,7 +262,7 @@ const MyReimbursementsPage = () => {
                 <h3 className="text-sm sm:text-lg font-semibold text-slate-700 mb-1.5 sm:mb-2">No Reimbursements Yet</h3>
                 <p className="text-xs sm:text-sm text-slate-500 mb-4 sm:mb-6">You haven't submitted any reimbursement requests</p>
                 <Button
-                  onClick={() => setShowApplyModal(true)}
+                  onClick={openApply}
                   className="bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-9 sm:h-10"
                 >
                   <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
@@ -451,11 +287,26 @@ const MyReimbursementsPage = () => {
                           </Badge>
                           <span className="text-[10px] sm:text-sm text-slate-500 flex items-center gap-0.5 sm:gap-1">
                             <Calendar className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5" />
-                            {format(new Date(reimbursement.expense_date), 'MMM dd, yyyy')}
+                            {safeDate(reimbursement.expense_date, 'MMM dd, yyyy')}
                           </span>
+                          {reimbursement.trip_label && (
+                            <span className="text-[10px] sm:text-xs text-sky-700 flex items-center gap-0.5">
+                              <Plane className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                              {reimbursement.trip_label}
+                            </span>
+                          )}
+                          {reimbursement.policy_flagged && (
+                            <Badge className="bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-50 gap-1 text-[10px] sm:text-xs px-1.5">
+                              <ShieldAlert className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                              Policy exception
+                            </Badge>
+                          )}
                         </div>
                         {reimbursement.description && (
                           <p className="text-[11px] sm:text-sm text-slate-500 mt-1.5 sm:mt-2 line-clamp-2">{reimbursement.description}</p>
+                        )}
+                        {reimbursement.policy_flagged && reimbursement.status === 'pending' && (
+                          <PolicyCheckPanel check={reimbursement.policy_check} compact />
                         )}
                         {reimbursement.admin_remarks && (
                           <div className="mt-1.5 sm:mt-2 p-1.5 sm:p-2 bg-slate-50 rounded-lg">
@@ -481,7 +332,9 @@ const MyReimbursementsPage = () => {
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-0.5 sm:gap-1 text-[10px] sm:text-xs text-amber-600 hover:text-amber-700"
                           >
-                            <Image className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                            {reimbursement.bill_type === 'application/pdf'
+                              ? <FileText className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                              : <Image className="w-2.5 h-2.5 sm:w-3 sm:h-3" />}
                             View Bill
                           </a>
                         )}
@@ -493,6 +346,7 @@ const MyReimbursementsPage = () => {
                               size="sm"
                               onClick={() => handleEditClick(reimbursement)}
                               className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 h-6 w-6 sm:h-7 sm:w-auto p-0 sm:px-2"
+                              aria-label="Edit"
                             >
                               <Pencil className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             </Button>
@@ -501,6 +355,7 @@ const MyReimbursementsPage = () => {
                               size="sm"
                               onClick={() => handleDeleteClick(reimbursement)}
                               className="text-red-500 hover:text-red-700 hover:bg-red-50 h-6 w-6 sm:h-7 sm:w-auto p-0 sm:px-2"
+                              aria-label="Delete"
                             >
                               <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             </Button>
@@ -515,328 +370,18 @@ const MyReimbursementsPage = () => {
           )}
         </div>
 
-        {/* Apply Reimbursement Modal */}
-        <Dialog open={showApplyModal} onOpenChange={setShowApplyModal}>
-          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto mx-2 sm:mx-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
-                <Receipt className="w-4 h-4 sm:w-5 sm:h-5" />
-                Apply for Reimbursement
-              </DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-3 sm:space-y-4 py-3 sm:py-4">
-              {/* Title */}
-              <div>
-                <Label className="text-slate-700 font-medium text-xs sm:text-sm">Title *</Label>
-                <Input
-                  placeholder="e.g., Client meeting travel expense"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  className="mt-1 sm:mt-1.5 text-sm h-9 sm:h-10"
-                />
-              </div>
-
-              {/* Category & Amount */}
-              <div className="grid grid-cols-2 gap-2 sm:gap-4">
-                <div>
-                  <Label className="text-slate-700 font-medium text-xs sm:text-sm">Category *</Label>
-                  <Select
-                    value={formData.category}
-                    onValueChange={(val) => setFormData({ ...formData, category: val })}
-                  >
-                    <SelectTrigger className="mt-1 sm:mt-1.5 text-xs sm:text-sm h-9 sm:h-10">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((cat) => (
-                        <SelectItem key={cat} value={cat} className="text-xs sm:text-sm">{cat}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-slate-700 font-medium text-xs sm:text-sm">Amount (₹) *</Label>
-                  <Input
-                    type="number"
-                    placeholder="0.00"
-                    value={formData.amount}
-                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                    className="mt-1 sm:mt-1.5 text-sm h-9 sm:h-10"
-                  />
-                </div>
-              </div>
-
-              {/* Expense Date */}
-              <div>
-                <Label className="text-slate-700 font-medium text-xs sm:text-sm">Expense Date *</Label>
-                <Input
-                  type="date"
-                  value={formData.expense_date}
-                  onChange={(e) => setFormData({ ...formData, expense_date: e.target.value })}
-                  className="mt-1 sm:mt-1.5 text-sm h-9 sm:h-10"
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <Label className="text-slate-700 font-medium text-xs sm:text-sm">Description</Label>
-                <Textarea
-                  placeholder="Provide details about the expense..."
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="mt-1 sm:mt-1.5 text-xs sm:text-sm"
-                  rows={3}
-                />
-              </div>
-
-              {/* Bill Upload */}
-              <div>
-                <Label className="text-slate-700 font-medium text-xs sm:text-sm">Bill/Receipt Image (Optional)</Label>
-                <div className="mt-1 sm:mt-1.5">
-                  {imagePreview ? (
-                    <div className="relative inline-block">
-                      <img
-                        src={imagePreview}
-                        alt="Bill preview"
-                        className="w-full max-h-36 sm:max-h-48 object-contain rounded-lg border border-slate-200"
-                      />
-                      <button
-                        type="button"
-                        onClick={removeImage}
-                        className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                      >
-                        <X className="w-3 h-3 sm:w-4 sm:h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <label className="flex flex-col items-center justify-center w-full h-24 sm:h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors">
-                      <Upload className="w-6 h-6 sm:w-8 sm:h-8 text-slate-400 mb-1.5 sm:mb-2" />
-                      <span className="text-xs sm:text-sm text-slate-500">Click to upload bill image</span>
-                      <span className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1">PNG, JPG up to 5MB</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageChange}
-                        className="hidden"
-                      />
-                    </label>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowApplyModal(false);
-                  resetForm();
-                }}
-                className="text-xs sm:text-sm h-8 sm:h-10"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSubmit}
-                disabled={submitting}
-                className="bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-8 sm:h-10"
-              >
-                {submitting ? (
-                  <>
-                    <div className="animate-spin w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full mr-1.5 sm:mr-2"></div>
-                    Submitting...
-                  </>
-                ) : (
-                  'Submit Request'
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Edit Reimbursement Modal */}
-        <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto mx-2 sm:mx-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
-                <Pencil className="w-4 h-4 sm:w-5 sm:h-5" />
-                Edit Reimbursement
-              </DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-3 sm:space-y-4 py-3 sm:py-4">
-              {/* Title */}
-              <div>
-                <Label className="text-slate-700 font-medium text-xs sm:text-sm">Title *</Label>
-                <Input
-                  placeholder="e.g., Client meeting travel expense"
-                  value={editFormData.title}
-                  onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
-                  className="mt-1 sm:mt-1.5 text-sm h-9 sm:h-10"
-                />
-              </div>
-
-              {/* Category & Amount */}
-              <div className="grid grid-cols-2 gap-2 sm:gap-4">
-                <div>
-                  <Label className="text-slate-700 font-medium text-xs sm:text-sm">Category *</Label>
-                  <Select
-                    value={editFormData.category}
-                    onValueChange={(val) => setEditFormData({ ...editFormData, category: val })}
-                  >
-                    <SelectTrigger className="mt-1 sm:mt-1.5 text-xs sm:text-sm h-9 sm:h-10">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((cat) => (
-                        <SelectItem key={cat} value={cat} className="text-xs sm:text-sm">{cat}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-slate-700 font-medium text-xs sm:text-sm">Amount (₹) *</Label>
-                  <Input
-                    type="number"
-                    placeholder="0.00"
-                    value={editFormData.amount}
-                    onChange={(e) => setEditFormData({ ...editFormData, amount: e.target.value })}
-                    className="mt-1 sm:mt-1.5 text-sm h-9 sm:h-10"
-                  />
-                </div>
-              </div>
-
-              {/* Expense Date */}
-              <div>
-                <Label className="text-slate-700 font-medium text-xs sm:text-sm">Expense Date *</Label>
-                <Input
-                  type="date"
-                  value={editFormData.expense_date}
-                  onChange={(e) => setEditFormData({ ...editFormData, expense_date: e.target.value })}
-                  className="mt-1 sm:mt-1.5 text-sm h-9 sm:h-10"
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <Label className="text-slate-700 font-medium text-xs sm:text-sm">Description</Label>
-                <Textarea
-                  placeholder="Provide details about the expense..."
-                  value={editFormData.description}
-                  onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
-                  className="mt-1 sm:mt-1.5 text-xs sm:text-sm"
-                  rows={3}
-                />
-              </div>
-
-              {/* Bill Upload */}
-              <div>
-                <Label className="text-slate-700 font-medium text-xs sm:text-sm">Bill/Receipt Image</Label>
-                <div className="mt-1 sm:mt-1.5">
-                  {/* Show new image preview if selected */}
-                  {editImagePreview ? (
-                    <div className="relative inline-block">
-                      <img
-                        src={editImagePreview}
-                        alt="New bill preview"
-                        className="w-full max-h-36 sm:max-h-48 object-contain rounded-lg border border-slate-200"
-                      />
-                      <button
-                        type="button"
-                        onClick={removeEditImage}
-                        className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
-                      >
-                        <X className="w-3 h-3 sm:w-4 sm:h-4" />
-                      </button>
-                      <p className="text-[10px] sm:text-xs text-emerald-600 mt-1.5 sm:mt-2">New image selected</p>
-                    </div>
-                  ) : editTarget?.bill_url && !removeBill ? (
-                    /* Show existing bill if available and not removed */
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-slate-50 rounded-lg border border-slate-200">
-                        <Image className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs sm:text-sm text-slate-700">Current bill attached</p>
-                          <a
-                            href={editTarget.bill_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[10px] sm:text-xs text-amber-600 hover:text-amber-700"
-                          >
-                            View current bill
-                          </a>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleRemoveExistingBill}
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
-                        >
-                          <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                        </Button>
-                      </div>
-                      <label className="flex flex-col items-center justify-center w-full h-20 sm:h-24 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors">
-                        <Upload className="w-5 h-5 sm:w-6 sm:h-6 text-slate-400 mb-1" />
-                        <span className="text-[10px] sm:text-xs text-slate-500">Upload new bill to replace</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleEditImageChange}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  ) : (
-                    /* No bill - show upload option */
-                    <div>
-                      {removeBill && (
-                        <p className="text-[10px] sm:text-xs text-amber-600 mb-1.5 sm:mb-2">Bill will be removed on save</p>
-                      )}
-                      <label className="flex flex-col items-center justify-center w-full h-24 sm:h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors">
-                        <Upload className="w-6 h-6 sm:w-8 sm:h-8 text-slate-400 mb-1.5 sm:mb-2" />
-                        <span className="text-xs sm:text-sm text-slate-500">Click to upload bill image</span>
-                        <span className="text-[10px] sm:text-xs text-slate-400 mt-0.5 sm:mt-1">PNG, JPG up to 5MB</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleEditImageChange}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <DialogFooter className="gap-2 sm:gap-0">
-              <Button
-                variant="outline"
-                onClick={handleCancelEdit}
-                disabled={editing}
-                className="text-xs sm:text-sm h-8 sm:h-10"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleConfirmEdit}
-                disabled={editing}
-                className="bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-8 sm:h-10"
-              >
-                {editing ? (
-                  <>
-                    <div className="animate-spin w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full mr-1.5 sm:mr-2"></div>
-                    Saving...
-                  </>
-                ) : (
-                  'Save Changes'
-                )}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {/* Apply / Edit Reimbursement Modal */}
+        {claimDialog && (
+          <ClaimDialog
+            key={claimDialog.id || 'new'}
+            open={!!claimDialog}
+            onOpenChange={(open) => { if (!open) setClaimDialog(null); }}
+            claim={claimDialog.id ? claimDialog : null}
+            categories={categories}
+            trips={trips}
+            onSaved={fetchReimbursements}
+          />
+        )}
 
         {/* Delete Confirmation Modal */}
         <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
@@ -866,7 +411,7 @@ const MyReimbursementsPage = () => {
                           {deleteTarget.category}
                         </Badge>
                         <span className="text-[10px] sm:text-sm text-slate-500">
-                          {format(new Date(deleteTarget.expense_date), 'MMM dd, yyyy')}
+                          {safeDate(deleteTarget.expense_date, 'MMM dd, yyyy')}
                         </span>
                       </div>
                       <p className="text-base sm:text-lg font-bold text-slate-800 mt-1.5 sm:mt-2">

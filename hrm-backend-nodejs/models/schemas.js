@@ -20,12 +20,42 @@ const LeaveType = {
   PAID_LEAVE: 'Paid Leave',
   EARNED_LEAVE: 'Earned Leave',
   UNPAID_LEAVE: 'Unpaid Leave',
-  COMP_OFF: 'Comp Off'
+  COMP_OFF: 'Comp Off',
+  MATERNITY_LEAVE: 'Maternity Leave',
+  PATERNITY_LEAVE: 'Paternity Leave',
+  BEREAVEMENT_LEAVE: 'Bereavement Leave',
+  RESTRICTED_HOLIDAY: 'Restricted Holiday'
 };
 
 const CreditType = {
   MONTHLY: 'monthly',
-  ANNUALLY: 'annually'
+  ANNUALLY: 'annually',
+  EVENT: 'event' // granted per occurrence (or per year), no monthly accrual
+};
+
+// One leave type in the leave policy (shared by leavePolicyItem and leavePolicy)
+const leavePolicyItemFields = {
+  leave_type: Joi.string().trim().min(1).max(60).required(),
+  annual_quota: Joi.number().min(0).required(), // event types: days per occurrence (or per year)
+  order: Joi.number().default(0),
+  credit_type: Joi.string().valid('monthly', 'annually', 'event').default('annually'),
+  monthly_credit: Joi.number().min(0).default(0), // Amount credited per month
+  advance_days_required: Joi.number().min(0).default(0), // Days in advance required
+  encashment_allowed: Joi.boolean().default(false),
+  max_encashment_days: Joi.number().min(0).allow(null).default(0), // 0 = no cap
+  carry_forward_allowed: Joi.boolean().default(false),
+  max_carry_forward_days: Joi.number().min(0).allow(null).default(0), // 0 = no cap
+  clubbing_allowed_with: Joi.array().items(Joi.string()).default([]), // Leave types allowed to club with
+  clubbing_not_allowed_with: Joi.array().items(Joi.string()).default([]), // Leave types NOT allowed to club with
+  is_unlimited: Joi.boolean().default(false), // If true, no balance checking is done
+  // LV-2 event leave (maternity, paternity, bereavement …)
+  event_scope: Joi.string().valid('occurrence', 'year').default('occurrence'),
+  max_occurrences_per_year: Joi.number().integer().min(1).allow(null).default(null),
+  gender_restriction: Joi.string().valid('female', 'male').allow(null).default(null),
+  restricted_holiday_only: Joi.boolean().default(false), // only on optional / restricted holidays
+  // LV-3: weekly offs / holidays between leave days count as leave
+  sandwich_rule: Joi.boolean().default(false),
+  description: Joi.string().max(300).allow('', null)
 };
 
 const AttendanceStatus = {
@@ -54,6 +84,14 @@ const ReimbursementCategory = {
   COMMUNICATION: 'Communication',
   OTHER: 'Other'
 };
+
+const AttendanceRequestType = {
+  MISSED_PUNCH: 'missed_punch',
+  WORK_FROM_HOME: 'wfh',
+  ON_DUTY: 'on_duty'
+};
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // Validation Schemas
 const schemas = {
@@ -157,36 +195,10 @@ const schemas = {
   }),
 
   // Leave Policy - Updated with new fields
-  leavePolicyItem: Joi.object({
-    leave_type: Joi.string().required(),
-    annual_quota: Joi.number().required(),
-    order: Joi.number().default(0),
-    credit_type: Joi.string().valid('monthly', 'annually').default('annually'),
-    monthly_credit: Joi.number().default(0), // Amount credited per month
-    advance_days_required: Joi.number().min(0).default(0), // Days in advance required
-    encashment_allowed: Joi.boolean().default(false),
-    carry_forward_allowed: Joi.boolean().default(false),
-    max_carry_forward_days: Joi.number().min(0).default(0),
-    clubbing_allowed_with: Joi.array().items(Joi.string()).default([]), // Leave types allowed to club with
-    clubbing_not_allowed_with: Joi.array().items(Joi.string()).default([]), // Leave types NOT allowed to club with
-    is_unlimited: Joi.boolean().default(false) // If true, no balance checking is done
-  }),
+  leavePolicyItem: Joi.object(leavePolicyItemFields),
 
   leavePolicy: Joi.object({
-    policies: Joi.array().items(Joi.object({
-      leave_type: Joi.string().required(),
-      annual_quota: Joi.number().required(),
-      order: Joi.number().default(0),
-      credit_type: Joi.string().valid('monthly', 'annually').default('annually'),
-      monthly_credit: Joi.number().default(0),
-      advance_days_required: Joi.number().min(0).default(0),
-      encashment_allowed: Joi.boolean().default(false),
-      carry_forward_allowed: Joi.boolean().default(false),
-      max_carry_forward_days: Joi.number().min(0).default(0),
-      clubbing_allowed_with: Joi.array().items(Joi.string()).default([]),
-      clubbing_not_allowed_with: Joi.array().items(Joi.string()).default([]),
-      is_unlimited: Joi.boolean().default(false)
-    })).required(),
+    policies: Joi.array().items(Joi.object(leavePolicyItemFields)).required(),
     // Global clubbing rules
     clubbing_rules: Joi.array().items(Joi.object({
       leave_type_1: Joi.string().required(),
@@ -351,6 +363,56 @@ const schemas = {
     year: Joi.number().min(2000).max(2100).required()
   }),
 
+  // Shifts & time tracking
+  shiftCreate: Joi.object({
+    name: Joi.string().trim().max(60).required(),
+    start_time: Joi.string().pattern(HHMM).required(),
+    end_time: Joi.string().pattern(HHMM).required(),
+    grace_minutes: Joi.number().integer().min(0).max(240).default(15),
+    early_exit_grace_minutes: Joi.number().integer().min(0).max(240).default(15),
+    half_day_minutes: Joi.number().integer().min(0).max(1440).default(240),
+    full_day_minutes: Joi.number().integer().min(0).max(1440).default(480),
+    weekly_offs: Joi.array().items(Joi.number().integer().min(0).max(6)).unique().default([0]),
+    is_default: Joi.boolean().default(false)
+  }),
+
+  shiftUpdate: Joi.object({
+    name: Joi.string().trim().max(60),
+    start_time: Joi.string().pattern(HHMM),
+    end_time: Joi.string().pattern(HHMM),
+    grace_minutes: Joi.number().integer().min(0).max(240),
+    early_exit_grace_minutes: Joi.number().integer().min(0).max(240),
+    half_day_minutes: Joi.number().integer().min(0).max(1440),
+    full_day_minutes: Joi.number().integer().min(0).max(1440),
+    weekly_offs: Joi.array().items(Joi.number().integer().min(0).max(6)).unique(),
+    is_default: Joi.boolean()
+  }).min(1),
+
+  shiftAssign: Joi.object({
+    shift_id: Joi.string().allow(null).required(), // null = fall back to the default shift
+    employee_ids: Joi.array().items(Joi.string()).min(1).required()
+  }),
+
+  clockPunch: Joi.object({
+    latitude: Joi.number().min(-90).max(90),
+    longitude: Joi.number().min(-180).max(180),
+    accuracy: Joi.number().min(0),
+    note: Joi.string().max(200).allow('')
+  }),
+
+  attendanceRequest: Joi.object({
+    type: Joi.string().valid(...Object.values(AttendanceRequestType)).required(),
+    date: Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required(),
+    clock_in: Joi.string().pattern(HHMM).allow(null, ''),
+    clock_out: Joi.string().pattern(HHMM).allow(null, ''),
+    reason: Joi.string().trim().max(500).required()
+  }),
+
+  attendanceRequestAction: Joi.object({
+    action: Joi.string().valid('approve', 'reject').required(),
+    comments: Joi.string().max(500).allow(null, '')
+  }),
+
   // Reimbursement
   reimbursementApply: Joi.object({
     title: Joi.string().required().max(200),
@@ -458,6 +520,66 @@ const defaultLeavePolicy = {
       clubbing_allowed_with: [],
       clubbing_not_allowed_with: [],
       is_unlimited: true
+    },
+    // LV-2: event leave types (credited per occurrence, no monthly accrual)
+    {
+      leave_type: 'Maternity Leave',
+      annual_quota: 182, // days per occurrence (26 weeks)
+      order: 5,
+      credit_type: 'event',
+      event_scope: 'occurrence',
+      max_occurrences_per_year: 1,
+      gender_restriction: 'female',
+      monthly_credit: 0,
+      advance_days_required: 0,
+      encashment_allowed: false,
+      carry_forward_allowed: false,
+      max_carry_forward_days: 0,
+      clubbing_allowed_with: [],
+      clubbing_not_allowed_with: [],
+      sandwich_rule: true
+    },
+    {
+      leave_type: 'Paternity Leave',
+      annual_quota: 15,
+      order: 6,
+      credit_type: 'event',
+      event_scope: 'occurrence',
+      monthly_credit: 0,
+      advance_days_required: 0,
+      encashment_allowed: false,
+      carry_forward_allowed: false,
+      max_carry_forward_days: 0,
+      clubbing_allowed_with: [],
+      clubbing_not_allowed_with: []
+    },
+    {
+      leave_type: 'Bereavement Leave',
+      annual_quota: 5,
+      order: 7,
+      credit_type: 'event',
+      event_scope: 'occurrence',
+      monthly_credit: 0,
+      advance_days_required: 0,
+      encashment_allowed: false,
+      carry_forward_allowed: false,
+      max_carry_forward_days: 0,
+      clubbing_allowed_with: [],
+      clubbing_not_allowed_with: []
+    },
+    {
+      leave_type: 'Restricted Holiday',
+      annual_quota: 2, // per year, only on optional / restricted holidays
+      order: 8,
+      credit_type: 'annually',
+      monthly_credit: 0,
+      advance_days_required: 0,
+      encashment_allowed: false,
+      carry_forward_allowed: false,
+      max_carry_forward_days: 0,
+      clubbing_allowed_with: [],
+      clubbing_not_allowed_with: [],
+      restricted_holiday_only: true
     }
   ],
   // Global clubbing rules for easy reference
@@ -477,6 +599,7 @@ module.exports = {
   LeaveType,
   CreditType,
   AttendanceStatus,
+  AttendanceRequestType,
   ReimbursementStatus,
   ReimbursementCategory,
   defaultLeaveBalance,

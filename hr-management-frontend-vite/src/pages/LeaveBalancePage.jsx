@@ -50,7 +50,11 @@ const LeaveBalancePage = () => {
     earned_leave: { bg: '#dcfce7', border: '#22c55e', text: '#166534' },
     unpaid_leave: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
     comp_off: { bg: '#e9d5ff', border: '#a855f7', text: '#6b21a8' },
-    comp_off_leave: { bg: '#e9d5ff', border: '#a855f7', text: '#6b21a8' }
+    comp_off_leave: { bg: '#e9d5ff', border: '#a855f7', text: '#6b21a8' },
+    maternity_leave: { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+    paternity_leave: { bg: '#e0f2fe', border: '#0ea5e9', text: '#075985' },
+    bereavement_leave: { bg: '#e2e8f0', border: '#475569', text: '#1e293b' },
+    restricted_holiday: { bg: '#ffedd5', border: '#f97316', text: '#9a3412' }
   };
 
   // Holiday color legend
@@ -724,7 +728,6 @@ const LeaveBalancePage = () => {
                             const isEmpty = balance === 0;
                             const displayName = formatLeaveTypeName(key);
                             const isCompOff = isCompOffType(key);
-                            const colorKey = key.toLowerCase().replace(/-/g, '_');
 
                             if (isCompOff) {
                               return (

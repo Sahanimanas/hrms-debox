@@ -7,6 +7,38 @@ const { schemas, UserRole, defaultLeaveBalance } = require('../models/schemas');
 const { hashPassword, generateUUID, normalizeLeaveType } = require('../utils/helpers');
 const { sendEmailNotification } = require('../services/emailService');
 const { generateWelcomeEmail, generateNewEmployeeNotificationEmail } = require('../utils/emailTemplates');
+const Joi = require('joi');
+const lifecycleHooks = require('../services/lifecycle/hooks');
+
+// Lifecycle (Phase 3) additions to the create payload: personal details,
+// probation length and onboarding options. Unknown keys are still stripped.
+const employeeCreateSchema = schemas.employeeCreate.keys({
+  date_of_birth: Joi.date().max('now').allow(null, ''),
+  gender: Joi.string().valid('male', 'female', 'non_binary', 'other', 'prefer_not_to_say').allow(null, ''),
+  probation_months: Joi.number().integer().min(0).max(24),
+  skip_onboarding: Joi.boolean().default(false),
+  onboarding_template_id: Joi.string().allow(null, '')
+});
+
+// Fields an employee may change on their own record directly. Everything
+// else goes through the admin, or through a profile change request (EL-8).
+const SELF_EDITABLE_FIELDS = ['full_name', 'phone'];
+
+/**
+ * Atomically increment the employee ID counter and return the settings
+ * document after the increment (driver v6 returns the document directly;
+ * older drivers wrapped it in { value }). Counter starts at 1000 if unset.
+ */
+async function nextEmployeeCounter(db) {
+  const result = await db.collection('settings').findOneAndUpdate(
+    {},
+    [{ $set: { employee_id_counter: { $add: [{ $ifNull: ['$employee_id_counter', 1000] }, 1] } } }],
+    { returnDocument: 'after' }
+  );
+  const doc = result && result.value !== undefined && result.employee_id_counter === undefined ? result.value : result;
+  if (!doc) throw new Error('System settings not initialized');
+  return doc;
+}
 
 /**
  * Default monthly credit rates for leave types
@@ -209,7 +241,7 @@ router.get('/', authenticate, requireRole([UserRole.ADMIN, UserRole.MANAGER]), a
  * POST /api/employees
  * Create new employee (admin only)
  */
-router.post('/', authenticate, requireRole([UserRole.ADMIN]), validate(schemas.employeeCreate), async (req, res) => {
+router.post('/', authenticate, requireRole([UserRole.ADMIN]), validate(employeeCreateSchema), async (req, res) => {
   try {
     const db = getDB();
     const employeeData = req.validatedBody;
@@ -222,42 +254,25 @@ router.post('/', authenticate, requireRole([UserRole.ADMIN]), validate(schemas.e
     }
 
     // ============================================
-    // FIX: ATOMIC COUNTER INCREMENT
-    // This prevents duplicate employee IDs
+    // ATOMIC COUNTER INCREMENT
+    // MongoDB driver v6: findOneAndUpdate resolves to the document itself.
+    // Keep incrementing until we land on an ID nobody has (the counter may
+    // have been reset below IDs that already exist).
     // ============================================
-    const settingsUpdate = await db.collection('settings').findOneAndUpdate(
-      {},
-      { $inc: { employee_id_counter: 1 } },
-      { returnDocument: 'after' }
-    );
-
-    if (!settingsUpdate || !settingsUpdate.value) {
-      // Try to get settings without update (maybe first time)
-      const settings = await db.collection('settings').findOne({});
-      if (!settings) {
-        return res.status(500).json({ detail: 'System settings not initialized' });
-      }
-      // Initialize counter if not exists
-      await db.collection('settings').updateOne(
-        {},
-        { $set: { employee_id_counter: (settings.employee_id_counter || 1000) + 1 } }
-      );
-      var employeeId = `${settings.employee_id_prefix || 'EMP'}${String((settings.employee_id_counter || 1000) + 1).padStart(4, '0')}`;
-    } else {
-      const settings = settingsUpdate.value;
-      var employeeId = `${settings.employee_id_prefix || 'EMP'}${String(settings.employee_id_counter).padStart(4, '0')}`;
+    const existingSettings = await db.collection('settings').findOne({});
+    if (!existingSettings) {
+      return res.status(500).json({ detail: 'System settings not initialized' });
     }
-
-    // Double-check this employee_id doesn't already exist (safety check)
-    const existingEmployee = await db.collection('employees').findOne({ employee_id: employeeId });
-    if (existingEmployee) {
-      // If somehow duplicate, increment again and retry
-      const retrySettings = await db.collection('settings').findOneAndUpdate(
-        {},
-        { $inc: { employee_id_counter: 1 } },
-        { returnDocument: 'after' }
-      );
-      employeeId = `${retrySettings.value.employee_id_prefix || 'EMP'}${String(retrySettings.value.employee_id_counter).padStart(4, '0')}`;
+    let employeeId = null;
+    for (let attempt = 0; attempt < 1000 && !employeeId; attempt++) {
+      const settings = await nextEmployeeCounter(db);
+      const candidate = `${settings.employee_id_prefix || 'EMP'}${String(settings.employee_id_counter).padStart(4, '0')}`;
+      const taken = await db.collection('employees').findOne({ employee_id: candidate }, { projection: { _id: 1 } })
+        || await db.collection('users').findOne({ employee_id: candidate }, { projection: { _id: 1 } });
+      if (!taken) employeeId = candidate;
+    }
+    if (!employeeId) {
+      return res.status(500).json({ detail: 'Could not allocate a unique employee ID' });
     }
 
     const employeeUuid = generateUUID();
@@ -339,10 +354,20 @@ router.post('/', authenticate, requireRole([UserRole.ADMIN]), validate(schemas.e
       manager_email: employeeData.manager_email || null,
       manager_name: managerName,
       leave_balance: leaveBalance,  // Includes comp_off and proper monthly credit calculation
+      ...(employeeData.date_of_birth ? { date_of_birth: new Date(employeeData.date_of_birth) } : {}),
+      ...(employeeData.gender ? { gender: employeeData.gender } : {}),
       created_at: now
     };
 
     await db.collection('employees').insertOne(employeeDoc);
+
+    // Lifecycle: probation dates, "joined" job-history entry, onboarding checklist
+    const lifecycleFields = await lifecycleHooks.onEmployeeCreated(db, employeeDoc, req.user, {
+      probation_months: employeeData.probation_months,
+      skip_onboarding: employeeData.skip_onboarding,
+      onboarding_template_id: employeeData.onboarding_template_id || null
+    });
+    Object.assign(employeeDoc, lifecycleFields);
 
     // Send welcome email
     try {
@@ -453,6 +478,21 @@ router.put('/:userId', authenticate, validate(schemas.employeeUpdate), async (re
     const allowedFields = ['full_name', 'department', 'designation', 'phone', 'organization_id', 'manager_email', 'monthly_salary', 'joining_date'];
     const updateDict = {};
 
+    // Non-admins editing their own record may only change basic contact fields;
+    // job / salary / reporting changes are admin-only (and logged in job history).
+    if (req.user.role !== UserRole.ADMIN) {
+      const blocked = Object.keys(updateData).filter(k =>
+        allowedFields.includes(k) && !SELF_EDITABLE_FIELDS.includes(k) && updateData[k] !== undefined &&
+        String(updateData[k] ?? '') !== String(employee[k] ?? '')
+      );
+      if (blocked.length) {
+        return res.status(403).json({ detail: `Only an admin can change: ${blocked.join(', ')}. Use a profile change request instead.` });
+      }
+      for (const key of Object.keys(updateData)) {
+        if (!SELF_EDITABLE_FIELDS.includes(key)) delete updateData[key];
+      }
+    }
+
     for (const key of Object.keys(updateData)) {
       if (allowedFields.includes(key) && updateData[key] !== undefined) {
         updateDict[key] = updateData[key];
@@ -522,6 +562,9 @@ router.put('/:userId', authenticate, validate(schemas.employeeUpdate), async (re
           { $set: userSyncFields }
         );
       }
+
+      // Lifecycle: log designation / department / manager / salary changes
+      await lifecycleHooks.onEmployeeUpdated(db, employee, updateDict, req.user);
     }
 
     // Get updated employee
@@ -601,6 +644,11 @@ router.put('/:userId/role', authenticate, requireRole([UserRole.ADMIN]), validat
       { email: employee.email },
       { $set: { role } }
     );
+
+    // Lifecycle: log the role change in job history
+    if (employee.role !== role) {
+      await lifecycleHooks.onRoleChanged(db, employee, role, req.user);
+    }
 
     res.json({
       message: 'Role updated successfully',
@@ -856,14 +904,17 @@ router.post('/fix-duplicate/:employeeId', authenticate, requireRole([UserRole.AD
     }
 
     // Generate new employee ID
-    const settingsUpdate = await db.collection('settings').findOneAndUpdate(
-      {},
-      { $inc: { employee_id_counter: 1 } },
-      { returnDocument: 'after' }
-    );
-
-    const settings = settingsUpdate.value;
-    const newEmployeeId = `${settings.employee_id_prefix || 'EMP'}${String(settings.employee_id_counter).padStart(4, '0')}`;
+    let newEmployeeId = null;
+    for (let attempt = 0; attempt < 1000 && !newEmployeeId; attempt++) {
+      const settings = await nextEmployeeCounter(db);
+      const candidate = `${settings.employee_id_prefix || 'EMP'}${String(settings.employee_id_counter).padStart(4, '0')}`;
+      if (!(await db.collection('employees').findOne({ employee_id: candidate }, { projection: { _id: 1 } }))) {
+        newEmployeeId = candidate;
+      }
+    }
+    if (!newEmployeeId) {
+      return res.status(500).json({ detail: 'Could not allocate a unique employee ID' });
+    }
 
     // Update employee
     await db.collection('employees').updateOne(

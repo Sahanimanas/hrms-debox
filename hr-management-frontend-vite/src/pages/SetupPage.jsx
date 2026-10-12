@@ -17,7 +17,7 @@ const SetupPage = ({ onSetupComplete }) => {
 
   // Database configuration
   const [dbConfig, setDbConfig] = useState({
-    mongo_url: '',
+    database_url: '',
     db_name: 'hrms',
     pem_certificate: ''
   });
@@ -69,8 +69,8 @@ const SetupPage = ({ onSetupComplete }) => {
   };
 
   const testConnection = async () => {
-    if (!dbConfig.mongo_url) {
-      toast.error('Please enter MongoDB URL');
+    if (!dbConfig.database_url) {
+      toast.error('Please enter the PostgreSQL connection URL');
       return;
     }
 
@@ -240,17 +240,17 @@ const SetupPage = ({ onSetupComplete }) => {
                 Database Configuration
               </CardTitle>
               <CardDescription>
-                Configure your MongoDB database connection
+                Configure your PostgreSQL database connection
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="mongo_url">MongoDB Connection URL *</Label>
+                <Label htmlFor="database_url">PostgreSQL Connection URL *</Label>
                 <Input
-                  id="mongo_url"
-                  placeholder="mongodb+srv://username:password@cluster.mongodb.net"
-                  value={dbConfig.mongo_url}
-                  onChange={(e) => setDbConfig({ ...dbConfig, mongo_url: e.target.value })}
+                  id="database_url"
+                  placeholder="postgres://username:password@localhost:5432/hrms"
+                  value={dbConfig.database_url}
+                  onChange={(e) => setDbConfig({ ...dbConfig, database_url: e.target.value })}
                   className="mt-1"
                 />
                 <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-md">
@@ -262,12 +262,12 @@ const SetupPage = ({ onSetupComplete }) => {
                   </p>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Example: mongodb+srv://user:pass@cluster.mongodb.net/?appName=hrms
+                  Example: postgres://hrms_user:pass@db.example.com:5432/hrms?sslmode=require
                 </p>
               </div>
 
               <div>
-                <Label htmlFor="db_name">Database Name *</Label>
+                <Label htmlFor="db_name">Schema Name *</Label>
                 <Input
                   id="db_name"
                   placeholder="hrms_production"
@@ -297,7 +297,7 @@ const SetupPage = ({ onSetupComplete }) => {
                   </label>
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Upload if your MongoDB requires SSL certificate authentication
+                  Upload the CA certificate if your PostgreSQL server requires verified TLS
                 </p>
               </div>
 

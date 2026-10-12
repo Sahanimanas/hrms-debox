@@ -5,6 +5,7 @@ const { getDB } = require('../config/database');
 const { hashPassword } = require('../utils/helpers');
 const { sendEmailNotification } = require('../services/emailService');
 const { generatePasswordResetEmail } = require('../utils/emailTemplates');
+const { recordAuthEvent } = require('../services/platform/audit');
 
 // Token expiry time (24 hours)
 const TOKEN_EXPIRY_HOURS = 24;
@@ -38,6 +39,7 @@ router.post('/request', async (req, res) => {
     // Always return success to prevent email enumeration
     if (!employee) {
       console.log(`Password reset requested for non-existent email: ${email}`);
+      recordAuthEvent(req, 'auth.password_reset.requested', { email: String(email).slice(0, 254), outcome: 'failure', reason: 'unknown_email' });
       return res.json({
         status: 'success',
         message: 'If an account with that email exists, a password reset link has been sent.'
@@ -80,6 +82,8 @@ router.post('/request', async (req, res) => {
     if (!emailSent) {
       console.error(`Failed to send password reset email to ${employee.email}`);
     }
+
+    recordAuthEvent(req, 'auth.password_reset.requested', { email: employee.email, details: { email_sent: !!emailSent } });
 
     // Log the request
     await db.collection('password_reset_logs').insertOne({
@@ -172,6 +176,7 @@ router.post('/reset', async (req, res) => {
     });
 
     if (!tokenDoc) {
+      recordAuthEvent(req, 'auth.password_reset.failed', { outcome: 'failure', reason: 'invalid_token' });
       return res.status(400).json({
         detail: 'Invalid or expired reset link',
         code: 'INVALID_TOKEN'
@@ -195,7 +200,9 @@ router.post('/reset', async (req, res) => {
       {
         $set: {
           hashed_password: hashedPassword,
-          password_updated_at: new Date()
+          password_updated_at: new Date(),
+          // Sign out every existing session for this account
+          tokens_valid_after: new Date()
         }
       }
     );
@@ -210,6 +217,8 @@ router.post('/reset', async (req, res) => {
         }
       }
     );
+
+    recordAuthEvent(req, 'auth.password_reset.completed', { email: tokenDoc.email });
 
     // Log the reset
     await db.collection('password_reset_logs').insertOne({

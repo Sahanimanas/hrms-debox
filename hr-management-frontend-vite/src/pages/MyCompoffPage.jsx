@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Calendar, Clock, CheckCircle, XCircle, AlertCircle, Gift, CalendarDays, Info } from 'lucide-react';
+import { Plus, Calendar, Clock, CheckCircle, XCircle, AlertCircle, Gift, CalendarDays, Info, Download } from 'lucide-react';
+import { exportCsv } from '@/lib/exportCsv';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -9,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 
 const MyCompOffPage = () => {
   const [compOffs, setCompOffs] = useState([]);
@@ -164,13 +165,33 @@ const MyCompOffPage = () => {
               <p className="text-xs sm:text-sm text-slate-600">Request compensatory off for working on holidays</p>
             </div>
           </div>
+          <div className="flex gap-2 w-full sm:w-auto">
+          <Button
+            variant="outline"
+            disabled={!compOffs.length}
+            onClick={() => exportCsv('my-comp-offs', compOffs, [
+              { label: 'Work date', value: (c) => String(c.work_date || '').slice(0, 10) },
+              { key: 'days', label: 'Days' },
+              { key: 'remaining_days', label: 'Remaining days' },
+              { label: 'Expires', value: (c) => String(c.expiry_date || '').slice(0, 10) },
+              { key: 'status', label: 'Status' },
+              { key: 'reason', label: 'Reason' },
+              { key: 'remarks', label: 'Remarks' },
+              { label: 'Requested on', value: (c) => String(c.created_at || '').slice(0, 10) },
+            ])}
+            className="rounded-lg sm:rounded-xl gap-1.5 text-xs sm:text-sm h-9 sm:h-10 flex-1 sm:flex-none"
+          >
+            <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            Export CSV
+          </Button>
           <Button
             onClick={() => setShowRequestModal(true)}
-            className="bg-slate-800 hover:bg-slate-900 rounded-lg sm:rounded-xl shadow-md gap-1.5 sm:gap-2 text-xs sm:text-sm h-9 sm:h-10 w-full sm:w-auto"
+            className="bg-slate-800 hover:bg-slate-900 rounded-lg sm:rounded-xl shadow-md gap-1.5 sm:gap-2 text-xs sm:text-sm h-9 sm:h-10 flex-1 sm:flex-none"
           >
             <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             Request Comp-Off
           </Button>
+          </div>
         </div>
 
         {/* Summary Cards */}

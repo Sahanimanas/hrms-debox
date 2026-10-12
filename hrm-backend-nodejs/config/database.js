@@ -1,25 +1,37 @@
-const { MongoClient } = require('mongodb');
+/**
+ * Database connection (PostgreSQL).
+ *
+ * Data lives in PostgreSQL through the pgdoc document store (db/pgdoc):
+ * DATABASE_URL picks the server/database and DB_NAME the schema, with one
+ * table per collection. getDB() returns an object with the familiar
+ * collection API (find, updateOne, aggregate, ...), so route code is
+ * unchanged.
+ */
+
+const { PgDocClient } = require('../db/pgdoc');
 
 let client = null;
 let db = null;
 
-const connectDB = async (mongoUrl, dbName) => {
+const connectDB = async (databaseUrl, dbName) => {
   try {
-    mongoUrl = mongoUrl || process.env.MONGO_URL || 'mongodb://localhost:27017';
+    databaseUrl = databaseUrl || process.env.DATABASE_URL || 'postgres://postgres@localhost:5432/hrms';
     dbName = dbName || process.env.DB_NAME || 'hrms_production';
 
-    client = new MongoClient(mongoUrl);
+    if (client) await client.close().catch(() => {});
+    client = new PgDocClient(databaseUrl);
     await client.connect();
-    
+
     db = client.db(dbName);
-    
-    // Test connection
+
+    // Test connection and make sure the schema exists
     await db.command({ ping: 1 });
-    console.log('✅ MongoDB connected successfully');
-    
+    await db._ensureSchema();
+    console.log('✅ PostgreSQL connected successfully');
+
     return db;
   } catch (error) {
-    console.error('❌ MongoDB connection failed:', error.message);
+    console.error('❌ PostgreSQL connection failed:', error.message);
     throw error;
   }
 };
@@ -33,7 +45,9 @@ const getClient = () => client;
 const closeDB = async () => {
   if (client) {
     await client.close();
-    console.log('MongoDB connection closed');
+    client = null;
+    db = null;
+    console.log('PostgreSQL connection closed');
   }
 };
 

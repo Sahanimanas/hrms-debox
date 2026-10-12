@@ -14,7 +14,7 @@ node scripts/sendWelcomeEmailToAll.js --org "Brainwave Technologie"
 node scripts/sendWelcomeEmailToAll.js --role employee
 
 # Combine filters
-node scripts/sendWelcomeEmailToAll.js --department IT --org "DeBox"
+node scripts/sendWelcomeEmailToAll.js --department IT --org "Xeno-HR"
 
 # Skip confirmation prompt
 node scripts/sendWelcomeEmailToAll.js --yes
@@ -35,7 +35,7 @@ node scripts/sendWelcomeEmailToAll.js --yes
 ║      🎉 Bulk Welcome Email Sender (All Employees)          ║
 ╚════════════════════════════════════════════════════════════╝
 
-✅ Connected to MongoDB
+✅ Connected to PostgreSQL
 
 📧 Found 5 employee(s) to send welcome emails:
 

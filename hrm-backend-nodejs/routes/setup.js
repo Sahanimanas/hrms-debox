@@ -8,7 +8,7 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
-const { MongoClient } = require('mongodb');
+const { PgDocClient } = require('../db/pgdoc');
 const { v4: uuidv4 } = require('uuid');
 const { connectDB, getDB, closeDB } = require('../config/database');
 const { isSetupCompleted, markSetupCompleted, ROOT_DIR } = require('../config/config');
@@ -33,35 +33,27 @@ router.get('/status', (req, res) => {
   });
 });
 
+/** PostgreSQL connection options: optional CA certificate (PEM) for TLS. */
+const pgOptions = (dbConfig) => {
+  if (!dbConfig.pem_certificate) return {};
+  fs.writeFileSync(path.join(ROOT_DIR, 'postgres_ca.pem'), dbConfig.pem_certificate);
+  return { ssl: { ca: dbConfig.pem_certificate, rejectUnauthorized: true } };
+};
+
 /**
  * POST /api/setup/test-connection
- * Test MongoDB connection
+ * Test PostgreSQL connection ({ database_url, db_name, pem_certificate? })
  */
 router.post('/test-connection', async (req, res) => {
   const config = req.body;
   
-  if (!config || !config.mongo_url) {
+  if (!config || !config.database_url) {
     return res.status(200).json({ success: true, message: 'No config provided' });
   }
 
   let testClient = null;
   try {
-    // Save PEM certificate if provided
-    let pemPath = null;
-    if (config.pem_certificate) {
-      pemPath = path.join(ROOT_DIR, 'mongodb_cert.pem');
-      fs.writeFileSync(pemPath, config.pem_certificate);
-    }
-
-    // Build connection options
-    const options = {};
-    if (pemPath) {
-      options.tls = true;
-      options.tlsCAFile = pemPath;
-    }
-
-    // Test connection
-    testClient = new MongoClient(config.mongo_url, options);
+    testClient = new PgDocClient(config.database_url, pgOptions(config));
     await testClient.connect();
     
     const testDb = testClient.db(config.db_name || 'hrms_production');
@@ -69,7 +61,7 @@ router.post('/test-connection', async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Successfully connected to MongoDB!',
+      message: 'Successfully connected to PostgreSQL!',
       db_name: config.db_name
     });
   } catch (error) {
@@ -100,21 +92,8 @@ router.post('/configure', async (req, res) => {
 
   let newClient = null;
   try {
-    // 1. Save PEM certificate if provided
-    let pemPath = null;
-    if (db_config.pem_certificate) {
-      pemPath = path.join(ROOT_DIR, 'mongodb_cert.pem');
-      fs.writeFileSync(pemPath, db_config.pem_certificate);
-    }
-
-    // 2. Connect to database
-    const options = {};
-    if (pemPath) {
-      options.tls = true;
-      options.tlsCAFile = pemPath;
-    }
-
-    newClient = new MongoClient(db_config.mongo_url, options);
+    // 1-2. Connect to database (optional CA certificate for TLS)
+    newClient = new PgDocClient(db_config.database_url, pgOptions(db_config));
     await newClient.connect();
     
     const db = newClient.db(db_config.db_name || 'hrms_production');
@@ -211,7 +190,7 @@ router.post('/configure', async (req, res) => {
 HOST=0.0.0.0
 PORT=${server_config.backend_port}
 
-MONGO_URL=${db_config.mongo_url}
+DATABASE_URL=${db_config.database_url}
 DB_NAME=${db_config.db_name}
 
 JWT_SECRET_KEY=${server_config.jwt_secret}
@@ -246,7 +225,7 @@ NODE_ENV=production
     await newClient.close();
 
     // Reconnect using the application's database module
-    await connectDB(db_config.mongo_url, db_config.db_name);
+    await connectDB(db_config.database_url, db_config.db_name);
 
     res.json({
       success: true,

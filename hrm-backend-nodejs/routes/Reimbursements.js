@@ -1,49 +1,110 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
+const Joi = require('joi');
 const { getDB } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roleCheck');
 const { UserRole } = require('../models/schemas');
 const { generateUUID, toISOString } = require('../utils/helpers');
 const { sendEmailNotification } = require('../services/emailService');
-const { uploadFile, deleteFile, extractKeyFromUrl } = require('../services/s3Service');
+const { extractKeyFromUrl } = require('../services/s3Service');
+const { storeFile, removeFile } = require('../services/fileStorage');
 const { createNotification, NotificationType } = require('../services/notificationService');
+const { emitEvent } = require('../services/events');
+const { receiptUpload } = require('../services/assets/uploads');
+const { evaluatePolicy } = require('../services/assets/expensePolicy');
+const { LINKABLE_TRIP_STATUSES } = require('../services/assets/travel');
 
-// Configure multer for memory storage
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
-    if (validTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image and PDF files are allowed'), false);
-    }
+// Receipts: images or PDF up to 10 MB (stored via services/fileStorage — S3 or local uploads/)
+const upload = receiptUpload('bill_image');
+
+const claimFields = {
+  title: Joi.string().trim().max(200),
+  category: Joi.string().trim().max(60),
+  amount: Joi.number().positive().max(1e9),
+  description: Joi.string().max(2000).allow(''),
+  expense_date: Joi.alternatives().try(Joi.date().iso(), Joi.valid('')),
+  trip_id: Joi.string().trim().max(100).allow('', 'none'),
+  remove_bill: Joi.alternatives().try(Joi.boolean(), Joi.string().valid('true', 'false'))
+};
+const applySchema = Joi.object(claimFields);
+const editSchema = Joi.object(claimFields);
+
+/** Validate multipart fields; returns [value, errorMessage]. */
+const validateFields = (schema, body) => {
+  const { error, value } = schema.validate(body || {}, { abortEarly: true, stripUnknown: true, convert: true });
+  if (error) {
+    const d = error.details[0];
+    const field = d.path.join('.');
+    const msg = field === 'amount' ? 'Invalid amount' : field === 'expense_date' ? 'Invalid expense date' : d.message.replace(/"/g, '');
+    return [null, msg];
   }
+  return [value, null];
+};
+
+const toDateString = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value);
+};
+
+/** Delete a stored bill (new fileStorage keys, legacy S3 keys, or legacy URL-only records). */
+const removeBill = async (reimbursement) => {
+  const key = reimbursement.bill_key || (reimbursement.bill_url ? extractKeyFromUrl(reimbursement.bill_url) : null);
+  if (key) await removeFile(key);
+};
+
+/** Compact snapshot of a policy check stored on the claim (shown to the approver). */
+const policySnapshot = (check) => ({
+  status: check.status,
+  has_policy: check.has_policy,
+  enforcement: check.enforcement,
+  category: check.policy?.category || null,
+  max_per_claim: check.policy?.max_per_claim ?? null,
+  monthly_cap: check.policy?.monthly_cap ?? null,
+  receipt_required_above: check.policy?.receipt_required_above ?? null,
+  month: check.month,
+  month_to_date: check.month_to_date,
+  violations: check.violations,
+  checked_at: check.checked_at
 });
+
+/** Resolve a trip the employee may link a claim to; throws { status, message } when invalid. */
+const resolveTrip = async (db, tripId, employeeEmail) => {
+  if (!tripId || tripId === 'none') return null;
+  const trip = await db.collection('travel_requests').findOne({ id: tripId }, { projection: { _id: 0 } });
+  if (!trip || trip.employee_email !== employeeEmail) {
+    throw Object.assign(new Error('Travel request not found'), { status: 400 });
+  }
+  if (!LINKABLE_TRIP_STATUSES.includes(trip.status)) {
+    throw Object.assign(new Error('Claims can only be linked to approved trips'), { status: 400 });
+  }
+  return trip;
+};
+
+const tripLabel = (trip) => `${trip.from_city} → ${trip.to_city} (${toDateString(trip.start_date)})`;
 
 /**
  * POST /api/reimbursements/apply
- * Apply for reimbursement (employee/manager)
+ * Apply for reimbursement (employee/manager). The claim is checked against the
+ * category's expense policy: hard violations are blocked, soft ones are saved
+ * and flagged for the approver.
  */
-router.post('/apply', authenticate, requireRole([UserRole.EMPLOYEE, UserRole.MANAGER]), upload.single('bill_image'), async (req, res) => {
+router.post('/apply', authenticate, requireRole([UserRole.EMPLOYEE, UserRole.MANAGER]), upload, async (req, res) => {
   try {
     const db = getDB();
-    const { title, category, amount, description, expense_date } = req.body;
 
     // Validate required fields
+    const { title, category, amount } = req.body || {};
     if (!title || !category || !amount) {
       return res.status(400).json({ detail: 'Title, category, and amount are required' });
     }
-
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      return res.status(400).json({ detail: 'Invalid amount' });
+    const [fields, fieldError] = validateFields(applySchema, req.body);
+    if (fieldError) return res.status(400).json({ detail: fieldError });
+    if (!fields.title || !fields.category) {
+      return res.status(400).json({ detail: 'Title, category, and amount are required' });
     }
+    const parsedAmount = Math.round(fields.amount * 100) / 100;
 
     // Get employee info
     const employee = await db.collection('employees').findOne(
@@ -55,24 +116,49 @@ router.post('/apply', authenticate, requireRole([UserRole.EMPLOYEE, UserRole.MAN
       return res.status(404).json({ detail: 'Employee not found' });
     }
 
-    // Upload bill image to S3 if provided
+    let trip = null;
+    try {
+      trip = await resolveTrip(db, fields.trip_id, employee.email);
+    } catch (e) {
+      return res.status(e.status || 400).json({ detail: e.message });
+    }
+
+    const expenseDate = toDateString(fields.expense_date) || toISOString(new Date());
+    const check = await evaluatePolicy(db, {
+      employee,
+      role: req.user.role,
+      category: fields.category,
+      amount: parsedAmount,
+      expenseDate,
+      hasReceipt: !!req.file
+    });
+    if (check.status === 'blocked') {
+      return res.status(400).json({
+        detail: `Blocked by expense policy: ${check.violations.map(v => v.message).join('; ')}`,
+        policy_check: check
+      });
+    }
+
+    // Store the bill (receipt) if provided
     let billUrl = null;
     let billKey = null;
     if (req.file) {
       try {
-        const uploadResult = await uploadFile(
+        const stored = await storeFile(
           req.file.buffer,
           req.file.originalname,
           req.file.mimetype,
-          'reimbursements',  // folder name in S3
+          'reimbursements',
           employee.employee_id || employee.id
         );
-        billUrl = uploadResult.url;
-        billKey = uploadResult.key;
-        console.log('Bill uploaded successfully:', billUrl);
+        billUrl = stored.url;
+        billKey = stored.key;
       } catch (uploadError) {
         console.error('Failed to upload bill image:', uploadError);
-        // Continue without the image - it's optional
+        if (check.receipt_required) {
+          return res.status(502).json({ detail: 'Could not store the receipt. Please try again.' });
+        }
+        // Otherwise continue without the image - it's optional
       }
     }
 
@@ -83,13 +169,19 @@ router.post('/apply', authenticate, requireRole([UserRole.EMPLOYEE, UserRole.MAN
       employee_email: employee.email,
       employee_name: employee.full_name,
       department: employee.department,
-      title,
-      category,
+      title: fields.title,
+      category: fields.category,
       amount: parsedAmount,
-      description: description || '',
-      expense_date: expense_date || toISOString(new Date()),
+      description: fields.description || '',
+      expense_date: expenseDate,
       bill_url: billUrl,
       bill_key: billKey,  // Store key for deletion later if needed
+      bill_name: req.file ? req.file.originalname : null,
+      bill_type: req.file ? req.file.mimetype : null,
+      trip_id: trip ? trip.id : null,
+      trip_label: trip ? tripLabel(trip) : null,
+      policy_check: policySnapshot(check),
+      policy_flagged: check.status === 'warning',
       status: 'pending',
       created_at: toISOString(new Date()),
       updated_at: toISOString(new Date()),
@@ -112,22 +204,28 @@ router.post('/apply', authenticate, requireRole([UserRole.EMPLOYEE, UserRole.MAN
           userId: admin.id,
           userEmail: admin.email,
           type: NotificationType.REIMBURSEMENT_APPLIED,
-          title: 'New Reimbursement Request',
-          message: `${employee.full_name} has submitted a reimbursement request for ₹${parsedAmount} (${category})`,
+          title: reimbursement.policy_flagged ? 'New Reimbursement Request (policy exception)' : 'New Reimbursement Request',
+          message: `${employee.full_name} has submitted a reimbursement request for ₹${parsedAmount} (${fields.category})${reimbursement.policy_flagged ? ' — flagged by expense policy' : ''}`,
           actionUrl: '/adminreimbursements',
-          metadata: { reimbursement_id: reimbursement.id, employee_name: employee.full_name, amount: parsedAmount }
+          metadata: { reimbursement_id: reimbursement.id, employee_name: employee.full_name, amount: parsedAmount, policy_flagged: reimbursement.policy_flagged }
         });
       }
     } catch (notifyError) {
       console.error('Failed to send reimbursement notification:', notifyError.message);
+    }
+    if (reimbursement.policy_flagged) {
+      emitEvent('expense.flagged', { reimbursement_id: reimbursement.id, employee_email: employee.email, category: fields.category, amount: parsedAmount, violations: check.violations.map(v => v.code) });
     }
 
     delete reimbursement._id;
 
     res.json({
       status: 'success',
-      message: 'Reimbursement request submitted successfully',
-      reimbursement
+      message: reimbursement.policy_flagged
+        ? 'Reimbursement request submitted and flagged for review against the expense policy'
+        : 'Reimbursement request submitted successfully',
+      reimbursement,
+      policy_check: check
     });
   } catch (error) {
     console.error('Apply reimbursement error:', error);
@@ -137,13 +235,13 @@ router.post('/apply', authenticate, requireRole([UserRole.EMPLOYEE, UserRole.MAN
 
 /**
  * PUT /api/reimbursements/:id
- * Edit reimbursement (only if pending, only by owner)
+ * Edit reimbursement (only if pending, only by owner; admin can edit any).
+ * The policy is re-checked; hard violations block the owner's edit.
  */
-router.put('/:id', authenticate, upload.single('bill_image'), async (req, res) => {
+router.put('/:id', authenticate, upload, async (req, res) => {
   try {
     const db = getDB();
     const { id } = req.params;
-    const { title, category, amount, description, expense_date, remove_bill } = req.body;
 
     // Get reimbursement
     const reimbursement = await db.collection('reimbursements').findOne(
@@ -165,90 +263,99 @@ router.put('/:id', authenticate, upload.single('bill_image'), async (req, res) =
       return res.status(400).json({ detail: 'Can only edit pending reimbursements' });
     }
 
+    const [fields, fieldError] = validateFields(editSchema, req.body);
+    if (fieldError) return res.status(400).json({ detail: fieldError });
+
     // Build update object
     const updateData = {
       updated_at: toISOString(new Date())
     };
 
-    if (title !== undefined && title.trim()) {
-      updateData.title = title.trim();
+    if (fields.title !== undefined && fields.title.trim()) {
+      updateData.title = fields.title.trim();
     }
 
-    if (category !== undefined && category.trim()) {
-      updateData.category = category.trim();
+    if (fields.category !== undefined && fields.category.trim()) {
+      updateData.category = fields.category.trim();
     }
 
-    if (amount !== undefined) {
-      const parsedAmount = parseFloat(amount);
-      if (isNaN(parsedAmount) || parsedAmount <= 0) {
-        return res.status(400).json({ detail: 'Invalid amount' });
+    if (fields.amount !== undefined) {
+      updateData.amount = Math.round(fields.amount * 100) / 100;
+    }
+
+    if (fields.description !== undefined) {
+      updateData.description = fields.description;
+    }
+
+    if (fields.expense_date !== undefined && fields.expense_date !== '') {
+      updateData.expense_date = toDateString(fields.expense_date);
+    }
+
+    if (fields.trip_id !== undefined) {
+      if (fields.trip_id === '' || fields.trip_id === 'none') {
+        updateData.trip_id = null;
+        updateData.trip_label = null;
+      } else if (fields.trip_id !== reimbursement.trip_id) {
+        try {
+          const trip = await resolveTrip(db, fields.trip_id, reimbursement.employee_email);
+          updateData.trip_id = trip.id;
+          updateData.trip_label = tripLabel(trip);
+        } catch (e) {
+          return res.status(e.status || 400).json({ detail: e.message });
+        }
       }
-      updateData.amount = parsedAmount;
     }
 
-    if (description !== undefined) {
-      updateData.description = description;
-    }
+    const removeExisting = fields.remove_bill === true || fields.remove_bill === 'true';
+    const willHaveReceipt = !!req.file || (!!reimbursement.bill_url && !removeExisting);
 
-    if (expense_date !== undefined) {
-      updateData.expense_date = expense_date;
+    // Re-check the expense policy against the edited claim
+    const employee = await db.collection('employees').findOne({ email: reimbursement.employee_email }, { projection: { _id: 0 } });
+    const merged = { ...reimbursement, ...updateData };
+    const check = await evaluatePolicy(db, {
+      employee: employee || { email: reimbursement.employee_email },
+      role: employee?.role,
+      category: merged.category,
+      amount: merged.amount,
+      expenseDate: merged.expense_date,
+      hasReceipt: willHaveReceipt,
+      excludeId: reimbursement.id
+    });
+    if (check.status === 'blocked' && req.user.role !== UserRole.ADMIN) {
+      return res.status(400).json({
+        detail: `Blocked by expense policy: ${check.violations.map(v => v.message).join('; ')}`,
+        policy_check: check
+      });
     }
+    updateData.policy_check = policySnapshot(check);
+    updateData.policy_flagged = check.status !== 'ok';
 
     // Handle bill image
     // If remove_bill is true, delete the existing bill
-    if (remove_bill === 'true' || remove_bill === true) {
-      if (reimbursement.bill_key) {
-        try {
-          await deleteFile(reimbursement.bill_key);
-        } catch (deleteError) {
-          console.error('Failed to delete old bill from S3:', deleteError);
-        }
-      } else if (reimbursement.bill_url) {
-        const key = extractKeyFromUrl(reimbursement.bill_url);
-        if (key) {
-          try {
-            await deleteFile(key);
-          } catch (deleteError) {
-            console.error('Failed to delete old bill from S3:', deleteError);
-          }
-        }
-      }
+    if (removeExisting) {
+      await removeBill(reimbursement);
       updateData.bill_url = null;
       updateData.bill_key = null;
+      updateData.bill_name = null;
+      updateData.bill_type = null;
     }
 
     // If new image is uploaded, replace the old one
     if (req.file) {
-      // Delete old bill if exists
-      if (reimbursement.bill_key) {
-        try {
-          await deleteFile(reimbursement.bill_key);
-        } catch (deleteError) {
-          console.error('Failed to delete old bill from S3:', deleteError);
-        }
-      } else if (reimbursement.bill_url) {
-        const key = extractKeyFromUrl(reimbursement.bill_url);
-        if (key) {
-          try {
-            await deleteFile(key);
-          } catch (deleteError) {
-            console.error('Failed to delete old bill from S3:', deleteError);
-          }
-        }
-      }
-
       // Upload new bill
       try {
-        const uploadResult = await uploadFile(
+        const stored = await storeFile(
           req.file.buffer,
           req.file.originalname,
           req.file.mimetype,
           'reimbursements',
           reimbursement.employee_id
         );
-        updateData.bill_url = uploadResult.url;
-        updateData.bill_key = uploadResult.key;
-        console.log('New bill uploaded successfully:', uploadResult.url);
+        if (!removeExisting) await removeBill(reimbursement);
+        updateData.bill_url = stored.url;
+        updateData.bill_key = stored.key;
+        updateData.bill_name = req.file.originalname;
+        updateData.bill_type = req.file.mimetype;
       } catch (uploadError) {
         console.error('Failed to upload new bill image:', uploadError);
         // Continue without updating the image
@@ -270,7 +377,8 @@ router.put('/:id', authenticate, upload.single('bill_image'), async (req, res) =
     res.json({
       status: 'success',
       message: 'Reimbursement updated successfully',
-      reimbursement: updatedReimbursement
+      reimbursement: updatedReimbursement,
+      policy_check: check
     });
   } catch (error) {
     console.error('Edit reimbursement error:', error);
@@ -597,25 +705,8 @@ router.delete('/:id', authenticate, async (req, res) => {
       }
     }
 
-    // Delete bill from S3 if exists
-    if (reimbursement.bill_key) {
-      try {
-        await deleteFile(reimbursement.bill_key);
-      } catch (deleteError) {
-        console.error('Failed to delete bill from S3:', deleteError);
-        // Continue with deletion anyway
-      }
-    } else if (reimbursement.bill_url) {
-      // Try to extract key from URL if bill_key is not stored
-      const key = extractKeyFromUrl(reimbursement.bill_url);
-      if (key) {
-        try {
-          await deleteFile(key);
-        } catch (deleteError) {
-          console.error('Failed to delete bill from S3:', deleteError);
-        }
-      }
-    }
+    // Delete the stored bill if any (never throws)
+    await removeBill(reimbursement);
 
     await db.collection('reimbursements').deleteOne({ id });
 

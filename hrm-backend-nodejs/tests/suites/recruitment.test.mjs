@@ -1,0 +1,568 @@
+// Phase 7 — Recruitment / ATS (RC-1 … RC-4)
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import {
+  run, section, check, get, post, put, del, http, bootstrap, createUser, withDb, login, BASE, BACKEND_DIR
+} from '../lib/harness.mjs';
+
+const require = createRequire(path.join(BACKEND_DIR, 'package.json'));
+const PDFDocument = require('pdfkit');
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const isoDay = (offsetDays) => new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+const inHours = (h) => new Date(Date.now() + h * 3600000).toISOString();
+
+/** Build a small resume PDF with pdfkit (Flate-compressed content stream). */
+const makePdf = ({ name = 'Test Person', email, phone, linkedin } = {}) => new Promise((resolve) => {
+  const doc = new PDFDocument();
+  const chunks = [];
+  doc.on('data', c => chunks.push(c));
+  doc.on('end', () => resolve(Buffer.concat(chunks)));
+  doc.fontSize(20).text(name);
+  doc.fontSize(11).text(`Software Engineer | ${email || ''} | ${phone || ''}`);
+  if (linkedin) doc.text('LinkedIn profile', { link: linkedin });
+  doc.text('Experience 2019 - 2023 at Acme Corp');
+  doc.end();
+});
+const fakeDocx = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('....[Content_Types].xml....word/document.xml....')]);
+
+let ipCounter = 10;
+const nextIp = () => `203.0.113.${ipCounter++}`;
+
+/** Multipart request with optional X-Forwarded-For (the harness upload() has no header option). */
+async function multipart(urlPath, token, fields = {}, file, { ip, method = 'POST' } = {}) {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) form.append(k, String(v));
+  if (file) form.append(file.field || 'resume', new Blob([file.content], { type: file.type || 'application/octet-stream' }), file.name);
+  const headers = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (ip) headers['X-Forwarded-For'] = ip;
+  const res = await fetch(BASE + urlPath, { method, headers, body: form });
+  let d = null;
+  try { d = await res.json(); } catch { /* not JSON */ }
+  return { s: res.status, d };
+}
+
+const pdfFile = (content, name = 'resume.pdf') => ({ content, name, type: 'application/pdf' });
+
+await run(async () => {
+  const admin = await bootstrap();
+  const mgr = await createUser(admin, { role: 'manager', name: 'Hana Hiring', department: 'Engineering' });
+  const mgr2 = await createUser(admin, { role: 'manager', name: 'Omar Other', department: 'Sales' });
+  const emp = await createUser(admin, { role: 'employee', name: 'Ivy Interviewer', manager_email: mgr.email });
+  const emp2 = await createUser(admin, { role: 'employee', name: 'Ian Interviewer', manager_email: mgr.email });
+  const emp3 = await createUser(admin, { role: 'employee', name: 'Rita Referrer', department: 'Sales' });
+  const resumePdf = await makePdf({ name: 'Asha Rao', email: 'asha.rao@example.org', phone: '+91 98765 43210', linkedin: 'https://www.linkedin.com/in/asha-rao' });
+
+  // ================================================================== RC-1
+  section('RC-1 Job requisitions');
+  const reqBody = {
+    title: 'Backend Engineer', department: 'Engineering', headcount: 1, employment_type: 'full_time',
+    location: 'Bengaluru', work_mode: 'hybrid', experience_min: 2, experience_max: 5,
+    budget_min: 1200000, budget_max: 1800000, justification: 'Team is growing; need help on the payments API.'
+  };
+  let r = await post('/v2/recruitment/requisitions', emp.token, reqBody);
+  check('employee cannot raise a requisition', r.s === 403, r);
+  r = await post('/v2/recruitment/requisitions', mgr.token, { ...reqBody, justification: undefined });
+  check('missing justification rejected', r.s === 422, r);
+  r = await post('/v2/recruitment/requisitions', mgr.token, { ...reqBody, experience_min: 6, experience_max: 2 });
+  check('experience range min > max rejected', r.s === 422, r);
+  r = await post('/v2/recruitment/requisitions', mgr.token, { ...reqBody, employment_type: 'gig' });
+  check('invalid employment type rejected', r.s === 422, r);
+  r = await post('/v2/recruitment/requisitions', mgr.token, reqBody);
+  check('manager raises a requisition (pending, manager is hiring manager)', r.s === 201 && r.d.status === 'pending' && r.d.hiring_manager_email === mgr.email, r);
+  const reqId = r.d?.id;
+  r = await get('/v2/recruitment/requisitions', mgr2.token);
+  check("other manager does not see someone else's requisition", r.s === 200 && !r.d.some(x => x.id === reqId), r);
+  r = await get('/v2/recruitment/requisitions', admin);
+  check('admin sees all requisitions', r.s === 200 && r.d.some(x => x.id === reqId), r);
+  r = await put(`/v2/recruitment/requisitions/${reqId}`, mgr.token, { headcount: 2 });
+  check('requester edits a pending requisition', r.s === 200 && r.d.headcount === 2, r);
+  r = await put(`/v2/recruitment/requisitions/${reqId}`, mgr2.token, { headcount: 3 });
+  check('other manager cannot edit it', r.s === 403, r);
+  r = await put(`/v2/recruitment/requisitions/${reqId}`, mgr.token, { headcount: 1 });
+  r = await post(`/v2/recruitment/requisitions/${reqId}/approve`, mgr.token, {});
+  check('manager cannot approve', r.s === 403, r);
+  await sleep(200);
+  const adminNotif = await withDb(db => db.collection('notifications').findOne({ user_email: 'admin@example.com', type: 'recruitment_requisition' }));
+  check('admins notified of new requisition', !!adminNotif, adminNotif);
+  r = await post(`/v2/recruitment/requisitions/${reqId}/approve`, admin, { note: 'Go ahead' });
+  check('admin approves → draft job posting created', r.s === 200 && r.d.requisition.status === 'approved' && r.d.job?.status === 'draft' && r.d.job.hiring_manager_email === mgr.email, r);
+  const jobId = r.d?.job?.id;
+  r = await post(`/v2/recruitment/requisitions/${reqId}/approve`, admin, {});
+  check('cannot approve twice', r.s === 400, r);
+
+  r = await post('/v2/recruitment/requisitions', mgr.token, { ...reqBody, title: 'Data Analyst' });
+  const req2 = r.d?.id;
+  r = await post(`/v2/recruitment/requisitions/${req2}/reject`, admin, {});
+  check('rejection requires a note', r.s === 422, r);
+  r = await post(`/v2/recruitment/requisitions/${req2}/reject`, admin, { note: 'No budget this quarter' });
+  check('admin rejects with note', r.s === 200 && r.d.status === 'rejected' && r.d.decision_note === 'No budget this quarter', r);
+  r = await post('/v2/recruitment/requisitions', mgr.token, { ...reqBody, title: 'QA Engineer' });
+  r = await post(`/v2/recruitment/requisitions/${r.d.id}/cancel`, mgr.token, {});
+  check('requester cancels a pending requisition', r.s === 200 && r.d.status === 'cancelled', r);
+
+  section('RC-1 Job postings');
+  r = await get('/v2/recruitment/jobs', emp.token);
+  check('employee cannot list jobs (admin view)', r.s === 403, r);
+  r = await get('/v2/recruitment/jobs', mgr.token);
+  check('hiring manager sees their job', r.s === 200 && r.d.some(j => j.id === jobId), r);
+  r = await get('/v2/recruitment/jobs', mgr2.token);
+  check('other manager does not', r.s === 200 && !r.d.some(j => j.id === jobId), r);
+  r = await post(`/v2/recruitment/jobs/${jobId}/status`, mgr.token, { status: 'open' });
+  check('cannot publish without a description', r.s === 422, r);
+  r = await put(`/v2/recruitment/jobs/${jobId}`, mgr2.token, { description: 'x'.repeat(40) });
+  check('other manager cannot edit the job', r.s === 403, r);
+  r = await put(`/v2/recruitment/jobs/${jobId}`, mgr.token, { hiring_manager_email: mgr2.email });
+  check('manager cannot change the hiring manager', r.s === 403, r);
+  r = await put(`/v2/recruitment/jobs/${jobId}`, mgr.token, { salary_min: 900, salary_max: 100 });
+  check('salary range min > max rejected', r.s === 422, r);
+  r = await put(`/v2/recruitment/jobs/${jobId}`, mgr.token, {
+    description: '## About the role\nBuild and scale our payments platform.\n- Own services end to end',
+    requirements: '- 2+ years Node.js\n- MongoDB', closing_date: isoDay(30), show_salary: true,
+    scorecard_criteria: ['Node.js', 'System design', 'Communication']
+  });
+  check('hiring manager edits the posting', r.s === 200 && r.d.scorecard_criteria.length === 3, r);
+  r = await put(`/v2/recruitment/jobs/${jobId}`, mgr.token, { closing_date: '2026-02-30' });
+  check('invalid calendar date rejected', r.s === 422, r);
+  r = await post(`/v2/recruitment/jobs/${jobId}/status`, mgr.token, { status: 'open' });
+  check('hiring manager publishes the job', r.s === 200 && r.d.status === 'open' && !!r.d.published_at && !!r.d.slug, r);
+  const slug = r.d?.slug;
+
+  r = await post('/v2/recruitment/jobs', mgr.token, { title: 'X', department: 'Y', location: 'Z', employment_type: 'full_time' });
+  check('manager cannot create a job directly', r.s === 403, r);
+  r = await post('/v2/recruitment/jobs', admin, { title: 'Backend Engineer', department: 'Engineering', location: 'Remote', employment_type: 'contract', work_mode: 'remote', description: 'Contract backend role working on our internal tools.', hiring_manager_email: mgr.email });
+  check('admin creates a job directly; same title gets a unique slug', r.s === 201 && r.d.slug && r.d.slug !== slug, r);
+  const job2Id = r.d?.id;
+  r = await put(`/v2/recruitment/jobs/${job2Id}`, admin, { slug });
+  check('duplicate slug rejected', r.s === 409, r);
+  r = await post('/v2/recruitment/jobs', admin, { title: 'Sales Lead', department: 'Sales', location: 'Mumbai', employment_type: 'full_time', hiring_manager_email: emp.email });
+  check('hiring manager must be a manager/admin', r.s === 422, r);
+  r = await post('/v2/recruitment/jobs', admin, { title: 'Sales Lead', department: 'Sales', location: 'Mumbai', employment_type: 'full_time', description: 'Lead our west region sales team and grow key accounts.', hiring_manager_email: mgr2.email, headcount: 2 });
+  const salesJobId = r.d?.id;
+  const salesSlug = r.d?.slug;
+  await post(`/v2/recruitment/jobs/${salesJobId}/status`, admin, { status: 'open' });
+  r = await post('/v2/recruitment/jobs', admin, { title: 'Draft Role', department: 'Ops', location: 'Pune', employment_type: 'internship', description: 'An internship that is not yet published to the site.' });
+  const draftJob = r.d;
+
+  r = await get('/v2/recruitment/public/jobs');
+  check('public list (no login) shows open jobs only', r.s === 200 && r.d.jobs.some(j => j.slug === slug) && !r.d.jobs.some(j => j.slug === draftJob.slug) && !r.d.jobs.some(j => j.id === job2Id), r.d);
+  check('public list hides internal fields', r.d.jobs.every(j => j.hiring_manager_email === undefined && j.requisition_id === undefined), r.d.jobs[0]);
+  check('salary shown only when enabled', r.d.jobs.find(j => j.slug === slug)?.salary?.min === 1200000 && r.d.jobs.find(j => j.slug === salesSlug)?.salary === null, r.d.jobs);
+  r = await get('/v2/recruitment/public/jobs?department=Sales');
+  check('public filter by department', r.d.jobs.length === 1 && r.d.jobs[0].slug === salesSlug, r.d);
+  r = await get('/v2/recruitment/public/jobs?q=payments');
+  check('public search by keyword', r.d.jobs.length === 1 && r.d.jobs[0].slug === slug && r.d.facets.departments.includes('Sales'), r.d);
+  r = await get(`/v2/recruitment/public/jobs/${slug}`);
+  check('public job detail by slug', r.s === 200 && r.d.job.description.includes('payments') && r.d.job.accepting_applications === true, r);
+  r = await get(`/v2/recruitment/public/jobs/${draftJob.slug}`);
+  check('draft job is not public', r.s === 404, r);
+  r = await get('/v2/recruitment/jobs?q=Backend&status=open', mgr2.token);
+  check('search + status filters stay inside the manager scope', r.s === 200 && !r.d.some(j => j.id === jobId), r.d);
+  r = await get('/v2/recruitment/jobs/open', emp.token);
+  check('employees can list open jobs for referrals', r.s === 200 && r.d.some(j => j.id === jobId), r);
+
+  section('RC-1 Public applications');
+  const applyFields = (over = {}) => ({ name: 'Asha Rao', email: 'asha.rao@example.org', phone: '+91 98765 43210', cover_letter: 'I love payments.', consent: 'true', ...over });
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields(), pdfFile(resumePdf), { ip: nextIp() });
+  check('candidate applies with PDF resume (no login)', r.s === 201 && /^[0-9A-F]{8}$/.test(r.d.reference), r);
+  let cand = await withDb(db => db.collection('candidates').findOne({ job_id: jobId, email: 'asha.rao@example.org' }));
+  check('application stored as careers_page candidate in Applied', cand?.source === 'careers_page' && cand.stage === 'applied' && cand.resume?.key, cand);
+  check('LinkedIn prefilled from the PDF', cand?.linkedin_url === 'https://www.linkedin.com/in/asha-rao' && cand.resume_parsed?.email === 'asha.rao@example.org', cand?.resume_parsed);
+  const ashaId = cand?.id;
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields(), pdfFile(resumePdf), { ip: nextIp() });
+  check('duplicate application (same email + job) blocked', r.s === 409, r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'ASHA.RAO@example.org' }), pdfFile(resumePdf), { ip: nextIp() });
+  check('duplicate check is case-insensitive', r.s === 409, r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'noconsent@mail.test', consent: '' }), pdfFile(resumePdf), { ip: nextIp() });
+  check('consent required', r.s === 422, r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'x1@mail.test', name: 'N'.repeat(101) }), pdfFile(resumePdf), { ip: nextIp() });
+  check('overlong name rejected', r.s === 422, r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'x2@mail.test', linkedin_url: 'https://evil.example.com/me' }), pdfFile(resumePdf), { ip: nextIp() });
+  check('non-LinkedIn URL rejected', r.s === 422, r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'x3@mail.test' }), null, { ip: nextIp() });
+  check('resume required', r.s === 422, r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'x4@mail.test' }), { content: 'hello', name: 'resume.txt', type: 'text/plain' }, { ip: nextIp() });
+  check('non PDF/DOC/DOCX extension rejected', r.s === 422, r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'x5@mail.test' }), { content: Buffer.from('MZ this is really an exe file'), name: 'resume.pdf', type: 'application/pdf' }, { ip: nextIp() });
+  check('file with .pdf name but wrong magic bytes rejected', r.s === 422 && /valid PDF/.test(r.d.detail), r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'x6@mail.test' }), { content: Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(5 * 1024 * 1024)]), name: 'big.pdf', type: 'application/pdf' }, { ip: nextIp() });
+  check('resume over 5 MB rejected', r.s === 413, r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'docx@mail.test', name: 'Dee Docx' }), { content: fakeDocx, name: 'cv.docx', type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }, { ip: nextIp() });
+  check('DOCX resume accepted', r.s === 201, r);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'bot@mail.test', website: 'http://spam.example' }), pdfFile(resumePdf), { ip: nextIp() });
+  const bot = await withDb(db => db.collection('candidates').findOne({ email: 'bot@mail.test' }));
+  check('honeypot: fake success, nothing stored', r.s === 201 && !bot, { r, bot });
+  r = await multipart(`/v2/recruitment/public/jobs/${draftJob.slug}/apply`, null, applyFields({ email: 'draft@mail.test' }), pdfFile(resumePdf), { ip: nextIp() });
+  check('cannot apply to a draft job', r.s === 404, r);
+  r = await multipart('/v2/recruitment/public/jobs/no-such-job/apply', null, applyFields({ email: 'none@mail.test' }), pdfFile(resumePdf), { ip: nextIp() });
+  check('unknown job 404', r.s === 404, r);
+
+  const limitedIp = nextIp();
+  let okCount = 0;
+  for (let i = 0; i < 5; i++) {
+    r = await multipart(`/v2/recruitment/public/jobs/${salesSlug}/apply`, null, applyFields({ email: `burst${i}@mail.test`, name: `Burst ${i}` }), pdfFile(resumePdf), { ip: limitedIp });
+    if (r.s === 201) okCount++;
+  }
+  r = await multipart(`/v2/recruitment/public/jobs/${salesSlug}/apply`, null, applyFields({ email: 'burst9@mail.test', name: 'Burst 9' }), pdfFile(resumePdf), { ip: limitedIp });
+  check('per-IP rate limit: 6th application in 10 minutes gets 429', okCount === 5 && r.s === 429, { okCount, r });
+  r = await multipart(`/v2/recruitment/public/jobs/${salesSlug}/apply`, null, applyFields({ email: 'burst10@mail.test', name: 'Burst 10' }), pdfFile(resumePdf), { ip: nextIp() });
+  check('other addresses are not affected', r.s === 201, r);
+  await sleep(200);
+  const hmNotif = await withDb(db => db.collection('notifications').findOne({ user_email: mgr.email, type: 'recruitment_application' }));
+  check('hiring manager notified of new application', !!hmNotif, hmNotif);
+
+  // ================================================================== RC-2
+  section('RC-2 Candidate pipeline');
+  r = await get('/v2/recruitment/candidates', emp.token);
+  check('employee cannot list candidates', r.s === 403, r);
+  r = await get('/v2/recruitment/candidates', mgr2.token);
+  check("manager only sees their own jobs' candidates", r.s === 200 && r.d.candidates.every(c => c.job_id === salesJobId) && r.d.total >= 6, r.d);
+  r = await get(`/v2/recruitment/candidates?job_id=${jobId}`, mgr2.token);
+  check('manager cannot filter into a job they do not manage', r.s === 403, r);
+  r = await get(`/v2/recruitment/candidates/${ashaId}`, mgr2.token);
+  check('manager cannot open a candidate of another job', r.s === 403, r);
+
+  r = await multipart('/v2/recruitment/candidates', mgr.token, { job_id: jobId, name: 'Manu Manual', email: 'manu@mail.test', phone: '9876501234', source: 'job_board', source_detail: 'Naukri', tags: 'node, Senior' }, pdfFile(await makePdf({ email: 'manu@mail.test' })));
+  check('hiring manager adds a candidate manually with resume and tags', r.s === 201 && r.d.candidate.source === 'job_board' && r.d.candidate.tags.includes('senior') && r.d.candidate.resume?.file_name === 'resume.pdf' && r.d.candidate.resume.key === undefined, r);
+  const manuId = r.d?.candidate?.id;
+  r = await multipart('/v2/recruitment/candidates', mgr.token, { job_id: jobId, name: 'Manu Again', email: 'manu@mail.test' });
+  check('duplicate (same email + job) rejected', r.s === 409, r);
+  r = await multipart('/v2/recruitment/candidates', admin, { job_id: salesJobId, name: 'Manu Manual', email: 'manu@mail.test', source: 'manual' });
+  check('same email on another job allowed but flagged as duplicate', r.s === 201 && r.d.duplicate_count === 1, r);
+  r = await multipart('/v2/recruitment/candidates', mgr.token, { job_id: salesJobId, name: 'Sneaky', email: 'sneaky@mail.test' });
+  check('manager cannot add candidates to a job they do not manage', r.s === 403, r);
+  r = await multipart('/v2/recruitment/candidates', mgr.token, { job_id: jobId, name: 'Bad Email', email: 'not-an-email' });
+  check('invalid email rejected', r.s === 422, r);
+  r = await multipart('/v2/recruitment/candidates', mgr.token, { job_id: jobId, name: 'Bad Source', email: 'bs@mail.test', source: 'carrier_pigeon' });
+  check('invalid source rejected', r.s === 422, r);
+  r = await get('/v2/recruitment/candidates/check-duplicate?email=manu@mail.test', admin);
+  check('duplicate detection by email', r.s === 200 && r.d.duplicate && r.d.matches.length === 2, r.d);
+  r = await get('/v2/recruitment/candidates/check-duplicate?email=manu@mail.test', mgr.token);
+  check('duplicate check for a manager hides other jobs but counts them', r.d.matches.length === 1 && r.d.other_jobs_count === 1, r.d);
+
+  r = await get(`/v2/recruitment/jobs/${jobId}/pipeline`, mgr.token);
+  check('Kanban pipeline groups candidates by stage', r.s === 200 && r.d.stages.length === 7 && r.d.stages.find(s => s.key === 'applied').candidates.length === 3, r.d?.stages?.map(s => [s.key, s.candidates.length]));
+  r = await get(`/v2/recruitment/jobs/${jobId}/pipeline`, mgr2.token);
+  check('pipeline protected from other managers', r.s === 403, r);
+
+  r = await post(`/v2/recruitment/candidates/${ashaId}/stage`, mgr.token, { stage: 'screening' });
+  check('move candidate to Screening', r.s === 200 && r.d.stage === 'screening' && r.d.stage_history.length === 2, r);
+  r = await post(`/v2/recruitment/candidates/${manuId}/stage`, mgr.token, { stage: 'rejected' });
+  check('rejecting requires a reason', r.s === 422, r);
+  r = await post(`/v2/recruitment/candidates/${manuId}/stage`, mgr.token, { stage: 'rejected', reason: 'Not enough backend depth' });
+  check('reject with reason', r.s === 200 && r.d.stage === 'rejected' && r.d.rejection_reason === 'Not enough backend depth', r);
+  r = await post(`/v2/recruitment/candidates/${manuId}/stage`, mgr.token, { stage: 'screening' });
+  check('rejected candidate can be reopened', r.s === 200 && r.d.stage === 'screening' && r.d.rejection_reason === null, r);
+  r = await post(`/v2/recruitment/candidates/${manuId}/stage`, mgr.token, { stage: 'hired' });
+  check('cannot jump straight to Hired', r.s === 400, r);
+  r = await post(`/v2/recruitment/candidates/${manuId}/stage`, mgr.token, { stage: 'ghosted' });
+  check('unknown stage rejected', r.s === 422, r);
+  r = await post(`/v2/recruitment/candidates/${manuId}/stage`, emp.token, { stage: 'interview' });
+  check('employee cannot move candidates', r.s === 403, r);
+  r = await post(`/v2/recruitment/candidates/${manuId}/stage`, mgr.token, { stage: 'withdrawn' });
+  check('withdrawn stage', r.s === 200 && r.d.stage === 'withdrawn', r);
+
+  r = await post(`/v2/recruitment/candidates/${ashaId}/notes`, mgr.token, { text: 'Strong payments background.' });
+  check('add a note', r.s === 201 && r.d.by_email === mgr.email, r);
+  const noteId = r.d?.id;
+  r = await post(`/v2/recruitment/candidates/${ashaId}/notes`, mgr.token, { text: '' });
+  check('empty note rejected', r.s === 422, r);
+  r = await put(`/v2/recruitment/candidates/${ashaId}`, mgr.token, { rating: 7 });
+  check('rating outside 1–5 rejected', r.s === 422, r);
+  r = await put(`/v2/recruitment/candidates/${ashaId}`, mgr.token, { rating: 4, tags: ['Payments', 'node'] });
+  check('update rating and tags', r.s === 200 && r.d.rating === 4 && r.d.tags.includes('payments'), r);
+  r = await get(`/v2/recruitment/candidates/${ashaId}`, mgr.token);
+  check('full profile: notes timeline, stage history, job', r.s === 200 && r.d.access === 'full' && r.d.candidate.notes.some(n => n.id === noteId) && r.d.candidate.stage_history.length === 2 && r.d.job.id === jobId, r.d);
+  check('profile never exposes storage keys or IP', r.d.candidate.resume.key === undefined && r.d.candidate.applied_ip === undefined, r.d.candidate);
+  r = await get(`/v2/recruitment/candidates/${ashaId}/resume`, mgr.token, { raw: true });
+  check('resume download returns the PDF', r.s === 200 && r.buf.subarray(0, 5).toString() === '%PDF-' && r.headers.get('content-disposition')?.includes('attachment'), r.s);
+  r = await get(`/v2/recruitment/candidates/${ashaId}/resume`, emp.token);
+  check('unrelated employee cannot download the resume', r.s === 403, r);
+  r = await del(`/v2/recruitment/candidates/${ashaId}/notes/${noteId}`, admin);
+  check('admin can delete a note', r.s === 200, r);
+
+  r = await get('/v2/recruitment/candidates?q=asha', admin);
+  check('search candidates by name across jobs', r.s === 200 && r.d.total === 1 && r.d.candidates[0].id === ashaId, r.d);
+  r = await get('/v2/recruitment/candidates?source=job_board', admin);
+  check('filter by source', r.d.candidates.length === 1 && r.d.candidates[0].id === manuId, r.d);
+  r = await get('/v2/recruitment/candidates?stage=screening', admin);
+  check('filter by stage', r.d.candidates.every(c => c.stage === 'screening') && r.d.candidates.some(c => c.id === ashaId), r.d);
+  r = await get('/v2/recruitment/candidates?q=asha&stage=screening&source=careers_page', mgr2.token);
+  check('combined filters cannot widen a manager past their jobs', r.s === 200 && r.d.total === 0, r.d);
+  r = await get('/v2/recruitment/candidates?tag=payments&min_rating=4', admin);
+  check('filter by tag + rating', r.d.total === 1, r.d);
+
+  section('RC-2 CV parsing');
+  const parsePdf = await makePdf({ name: 'Paul Parse', email: 'paul.parse@mail.test', phone: '+1 (415) 555-0134', linkedin: 'https://linkedin.com/in/paul-parse' });
+  r = await multipart('/v2/recruitment/candidates/parse-resume', emp.token, {}, pdfFile(parsePdf));
+  check('parses email, phone and LinkedIn from a PDF', r.s === 200 && r.d.email === 'paul.parse@mail.test' && r.d.phone?.replace(/\D/g, '') === '14155550134' && r.d.linkedin_url === 'https://linkedin.com/in/paul-parse', r.d);
+  const plainPdf = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Length 80 >>\nstream\nBT /F1 12 Tf 72 712 Td (Contact: plain.text@mail.test  +44 20 7946 0958) Tj ET\nendstream\nendobj\n%%EOF');
+  r = await multipart('/v2/recruitment/candidates/parse-resume', emp.token, {}, pdfFile(plainPdf));
+  check('parses an uncompressed PDF text stream', r.s === 200 && r.d.email === 'plain.text@mail.test' && !!r.d.phone, r.d);
+  r = await multipart('/v2/recruitment/candidates/parse-resume', emp.token, {}, { content: 'nope', name: 'a.png', type: 'image/png' });
+  check('parser rejects unsupported files', r.s === 422, r);
+
+  section('RC-2 Referrals');
+  r = await multipart('/v2/recruitment/referrals', emp3.token, { job_id: jobId, name: 'Fran Friend', email: 'fran@mail.test', relationship: 'Former colleague', note: 'Great engineer' }, pdfFile(resumePdf));
+  check('any employee refers a candidate for an open job', r.s === 201 && r.d.status === 'In review' && r.d.job_id === jobId, r);
+  const franId = r.d?.id;
+  cand = await withDb(db => db.collection('candidates').findOne({ id: franId }));
+  check('referral stored with source=referral and referrer', cand?.source === 'referral' && cand.referred_by_email === emp3.email, cand);
+  r = await multipart('/v2/recruitment/referrals', emp3.token, { job_id: jobId, name: 'Fran Friend', email: 'fran@mail.test' }, pdfFile(resumePdf));
+  check('duplicate referral blocked', r.s === 409, r);
+  r = await multipart('/v2/recruitment/referrals', emp3.token, { job_id: draftJob.id, name: 'Dora Draft', email: 'dora@mail.test' }, pdfFile(resumePdf));
+  check('cannot refer for a draft job', r.s === 404, r);
+  r = await multipart('/v2/recruitment/referrals', emp3.token, { job_id: jobId, name: 'Me Myself', email: emp3.email }, pdfFile(resumePdf));
+  check('cannot refer yourself', r.s === 400, r);
+  r = await multipart('/v2/recruitment/referrals', emp3.token, { job_id: jobId, name: 'No Resume', email: 'nores@mail.test' });
+  check('referral requires a resume', r.s === 422, r);
+  r = await get('/v2/recruitment/referrals/my', emp3.token);
+  check('referrer sees their referrals', r.s === 200 && r.d.length === 1 && r.d[0].name === 'Fran Friend', r.d);
+  check('referral view hides internal details', r.d[0].stage_history === undefined && r.d[0].notes === undefined, r.d[0]);
+  r = await get('/v2/recruitment/referrals/my', emp.token);
+  check("others don't see someone else's referrals", r.s === 200 && r.d.length === 0, r.d);
+  await post(`/v2/recruitment/candidates/${franId}/stage`, mgr.token, { stage: 'rejected', reason: 'Internal reason that should stay private' });
+  r = await get('/v2/recruitment/referrals/my', emp3.token);
+  check('referrer sees a friendly status, not the rejection reason', r.d[0].status === 'Not selected' && !JSON.stringify(r.d).includes('private'), r.d);
+
+  section('RC-2 Recruitment analytics');
+  r = await get('/v2/recruitment/analytics', admin);
+  check('analytics: candidates per stage', r.s === 200 && r.d.by_stage.find(s => s.stage === 'screening').count >= 1 && r.d.candidates.total >= 10, r.d?.by_stage);
+  check('analytics: source breakdown', r.d.by_source.find(s => s.source === 'careers_page').count >= 8 && r.d.by_source.find(s => s.source === 'referral').count === 1, r.d?.by_source);
+  check('analytics: weekly applications trend and per-job table', r.d.applications_by_week.length === 8 && r.d.per_job.some(j => j.job_id === jobId), r.d);
+  r = await get('/v2/recruitment/analytics', mgr2.token);
+  check('manager analytics scoped to their jobs', r.s === 200 && r.d.per_job.every(j => j.job_id === salesJobId), r.d?.per_job);
+  r = await get(`/v2/recruitment/analytics?job_id=${jobId}`, mgr2.token);
+  check('analytics job filter cannot reach an unmanaged job', r.s === 200 && r.d.per_job.length === 0 && r.d.candidates.total === 0, r.d);
+  r = await get('/v2/recruitment/analytics', emp.token);
+  check('employees cannot see analytics', r.s === 403, r);
+
+  // ================================================================== RC-3
+  section('RC-3 Interviews');
+  const ivBody = { round_name: 'Technical round', scheduled_at: inHours(48), duration_minutes: 60, mode: 'video', meeting_link: 'https://meet.example.com/abc', interviewer_emails: [emp.email, emp2.email] };
+  r = await post(`/v2/recruitment/candidates/${ashaId}/interviews`, emp.token, ivBody);
+  check('employee cannot schedule interviews', r.s === 403, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/interviews`, mgr.token, { ...ivBody, meeting_link: '' });
+  check('video interview requires a meeting link', r.s === 422, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/interviews`, mgr.token, { ...ivBody, interviewer_emails: ['ghost@nowhere.test'] });
+  check('interviewers must be employees', r.s === 422, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/interviews`, mgr.token, { ...ivBody, interviewer_emails: [] });
+  check('at least one interviewer required', r.s === 422, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/interviews`, mgr.token, { ...ivBody, scheduled_at: new Date(Date.now() - 30 * 86400000).toISOString() });
+  check('cannot schedule far in the past', r.s === 422, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/interviews`, mgr.token, { ...ivBody, mode: 'telepathy' });
+  check('invalid mode rejected', r.s === 422, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/interviews`, mgr2.token, ivBody);
+  check('other manager cannot schedule for this job', r.s === 403, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/interviews`, mgr.token, ivBody);
+  check('hiring manager schedules an interview', r.s === 201 && r.d.interview.status === 'scheduled' && r.d.interview.interviewer_emails.length === 2, r);
+  const ivId = r.d?.interview?.id;
+  const ivDoc = await withDb(db => db.collection('interviews').findOne({ id: ivId }));
+  check('interviews document matches the shared contract', ivDoc && ivDoc.candidate_id === ashaId && ivDoc.candidate_name === 'Asha Rao' && ivDoc.job_id === jobId && ivDoc.job_title === 'Backend Engineer' && ivDoc.scheduled_at instanceof Date && ivDoc.duration_minutes === 60 && Array.isArray(ivDoc.interviewer_emails) && ivDoc.mode === 'video' && ivDoc.meeting_link && ivDoc.status === 'scheduled', ivDoc);
+  r = await get(`/v2/recruitment/candidates/${ashaId}`, mgr.token);
+  check('scheduling moves the candidate to Interview', r.d.candidate.stage === 'interview', r.d.candidate.stage);
+  await sleep(200);
+  const ivNotif = await withDb(db => db.collection('notifications').findOne({ user_email: emp.email, type: 'recruitment_interview' }));
+  check('interviewers are notified', !!ivNotif, ivNotif);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/interviews`, mgr.token, { ...ivBody, round_name: 'Overlap round', scheduled_at: new Date(Date.parse(ivBody.scheduled_at) + 30 * 60000).toISOString(), interviewer_emails: [emp.email] });
+  check('overlapping slot for an interviewer is flagged as a conflict', r.s === 201 && r.d.conflicts.length === 1 && r.d.conflicts[0].id === ivId, r.d?.conflicts);
+  const overlapId = r.d?.interview?.id;
+
+  r = await get('/v2/recruitment/interviews', emp.token);
+  check('My Interviews lists assigned interviews with criteria', r.s === 200 && r.d.some(i => i.id === ivId && i.is_interviewer && !i.my_scorecard_submitted && i.scorecard_criteria.includes('Node.js')), r.d);
+  r = await get('/v2/recruitment/interviews', emp3.token);
+  check('unassigned employee sees none', r.s === 200 && r.d.length === 0, r.d);
+  r = await get('/v2/recruitment/interviews?scope=all', emp3.token);
+  check('employee cannot widen scope to all', r.s === 200 && r.d.length === 0, r.d);
+  r = await get(`/v2/recruitment/interviews?scope=all&job_id=${jobId}&status=scheduled&candidate_id=${ashaId}`, mgr2.token);
+  check('interview filters cannot widen a manager past their scope', r.s === 200 && r.d.length === 0, r.d);
+  r = await get('/v2/recruitment/interviews?scope=all', admin);
+  check('admin sees all interviews', r.d.some(i => i.id === ivId), r.d);
+  r = await get(`/v2/recruitment/candidates/${ashaId}`, emp.token);
+  check('interviewer gets a limited candidate view', r.s === 200 && r.d.access === 'interviewer' && r.d.candidate.notes === undefined && r.d.candidate.rating === undefined && r.d.job.scorecard_criteria.length === 3, r.d);
+  r = await get(`/v2/recruitment/candidates/${ashaId}/resume`, emp.token, { raw: true });
+  check('interviewer can download the resume', r.s === 200 && r.buf.subarray(0, 5).toString() === '%PDF-', r.s);
+  r = await get(`/v2/recruitment/interviews/${ivId}/ics`, emp.token, { raw: true });
+  const ics = (r.buf?.toString() || '').replace(/\r\n /g, ''); // unfold RFC 5545 continuation lines
+  check('.ics invite downloads', r.s === 200 && r.headers.get('content-type').includes('text/calendar') && ics.includes('BEGIN:VCALENDAR') && ics.includes('DTSTART:') && ics.includes(`UID:interview-${ivId}`) && ics.includes('mailto:' + emp.email), ics.slice(0, 300));
+  r = await get(`/v2/recruitment/interviews/${ivId}/ics`, emp3.token);
+  check('non-panel employee cannot download the invite', r.s === 403, r);
+
+  r = await put(`/v2/recruitment/interviews/${ivId}`, emp.token, { duration_minutes: 45 });
+  check('interviewer cannot reschedule', r.s === 403, r);
+  const newTime = inHours(72);
+  r = await put(`/v2/recruitment/interviews/${ivId}`, mgr.token, { scheduled_at: newTime, duration_minutes: 45 });
+  check('hiring manager reschedules (sequence bumps, history kept)', r.s === 200 && r.d.interview.sequence === 1 && new Date(r.d.interview.scheduled_at).toISOString() === newTime && r.d.interview.history.some(h => h.action === 'rescheduled') && r.d.conflicts.length === 0, r.d);
+  r = await post(`/v2/recruitment/interviews/${overlapId}/cancel`, mgr.token, { reason: 'Duplicate slot' });
+  check('cancel an interview', r.s === 200 && r.d.status === 'cancelled' && r.d.cancel_reason === 'Duplicate slot', r);
+  r = await post(`/v2/recruitment/interviews/${overlapId}/cancel`, mgr.token, {});
+  check('cannot cancel twice', r.s === 400, r);
+  r = await get(`/v2/recruitment/interviews/${overlapId}/ics`, emp.token, { raw: true });
+  check('cancelled interview .ics carries METHOD:CANCEL', r.buf?.toString().includes('METHOD:CANCEL') && r.buf.toString().includes('STATUS:CANCELLED'), r.s);
+
+  section('RC-3 Scorecards');
+  const ratings = (n) => ['Node.js', 'System design', 'Communication'].map(criterion => ({ criterion, rating: n }));
+  r = await post(`/v2/recruitment/interviews/${ivId}/scorecard`, emp3.token, { ratings: ratings(4), recommendation: 'hire' });
+  check('non-assigned employee cannot submit a scorecard', r.s === 403, r);
+  r = await post(`/v2/recruitment/interviews/${ivId}/scorecard`, mgr.token, { ratings: ratings(4), recommendation: 'hire' });
+  check('even the hiring manager cannot score an interview they are not on', r.s === 403, r);
+  r = await post(`/v2/recruitment/interviews/${ivId}/scorecard`, emp.token, { ratings: ratings(4).slice(0, 2), recommendation: 'hire' });
+  check('all job criteria must be rated', r.s === 422, r);
+  r = await post(`/v2/recruitment/interviews/${ivId}/scorecard`, emp.token, { ratings: [...ratings(4), { criterion: 'Astrology', rating: 5 }], recommendation: 'hire' });
+  check('unknown criterion rejected', r.s === 422, r);
+  r = await post(`/v2/recruitment/interviews/${ivId}/scorecard`, emp.token, { ratings: ratings(6), recommendation: 'hire' });
+  check('rating above 5 rejected', r.s === 422, r);
+  r = await post(`/v2/recruitment/interviews/${ivId}/scorecard`, emp.token, { ratings: ratings(4), recommendation: 'maybe' });
+  check('invalid recommendation rejected', r.s === 422, r);
+  r = await get(`/v2/recruitment/interviews/${ivId}/scorecards`, emp.token);
+  check('before submitting, other feedback is hidden', r.s === 200 && r.d.hidden === true && r.d.scorecards.length === 0, r.d);
+  r = await post(`/v2/recruitment/interviews/${ivId}/scorecard`, emp2.token, { ratings: ratings(2), strengths: 'Clear', concerns: 'Shallow design', recommendation: 'no_hire' });
+  check('interviewer B submits', r.s === 201 && r.d.overall_rating === 2, r);
+  r = await get(`/v2/recruitment/interviews/${ivId}/scorecards`, emp.token);
+  check("A still can't see B's scorecard before submitting", r.d.hidden === true && r.d.scorecards.length === 0 && r.d.submitted_count === 1, r.d);
+  r = await post(`/v2/recruitment/interviews/${ivId}/scorecard`, emp.token, { ratings: ratings(5), strengths: 'Deep Node.js', concerns: '', recommendation: 'strong_hire' });
+  check('interviewer A submits', r.s === 201 && r.d.overall_rating === 5 && r.d.ratings.length === 3, r);
+  r = await post(`/v2/recruitment/interviews/${ivId}/scorecard`, emp.token, { ratings: ratings(4), strengths: 'Deep Node.js', recommendation: 'hire' });
+  check('resubmitting updates (one scorecard per interviewer)', r.s === 200 && r.d.overall_rating === 4, r);
+  r = await get(`/v2/recruitment/interviews/${ivId}/scorecards`, emp.token);
+  check('after submitting, A sees all scorecards', r.d.hidden === false && r.d.scorecards.length === 2, r.d);
+  r = await get(`/v2/recruitment/interviews/${ivId}`, mgr.token);
+  check('interview auto-completes when every interviewer has submitted', r.d.status === 'completed', r.d.status);
+  r = await get(`/v2/recruitment/interviews/${ivId}/scorecards`, mgr.token);
+  check('hiring manager sees all scorecards', r.d.hidden === false && r.d.scorecards.length === 2, r.d);
+  r = await get(`/v2/recruitment/candidates/${ashaId}/scorecards`, admin);
+  check('aggregated scorecard summary', r.s === 200 && r.d.count === 2 && r.d.average_rating === 3 && r.d.recommendations.hire === 1 && r.d.recommendations.no_hire === 1 && r.d.criteria.find(c => c.criterion === 'Node.js').average === 3, r.d);
+  r = await get(`/v2/recruitment/candidates/${ashaId}/scorecards`, emp.token);
+  check('interviewers cannot see the candidate-level summary', r.s === 403, r);
+  r = await post(`/v2/recruitment/interviews/${overlapId}/scorecard`, emp.token, { ratings: ratings(3), recommendation: 'hire' });
+  check('cannot score a cancelled interview', r.s === 400, r);
+  r = await get('/v2/recruitment/summary', emp.token);
+  check('dashboard summary for an interviewer', r.s === 200 && Array.isArray(r.d.my_upcoming_interviews) && r.d.open_jobs === undefined, r.d);
+  r = await get('/v2/recruitment/summary', admin);
+  check('dashboard summary for admin includes pipeline numbers', r.s === 200 && r.d.open_jobs >= 2 && r.d.new_applications_7d >= 10, r.d);
+
+  // ================================================================== RC-4
+  section('RC-4 Offers');
+  const offerBody = { designation: 'Backend Engineer II', department: 'Engineering', ctc: 1650000, joining_date: isoDay(30), expiry_date: isoDay(7), notes: 'Relocation support up to INR 50,000.' };
+  r = await post(`/v2/recruitment/candidates/${ashaId}/offers`, mgr.token, offerBody);
+  check('manager cannot create offers', r.s === 403, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/offers`, admin, { ...offerBody, expiry_date: isoDay(-2) });
+  check('expiry date in the past rejected', r.s === 422, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/offers`, admin, { ...offerBody, ctc: -5 });
+  check('negative CTC rejected', r.s === 422, r);
+  r = await post(`/v2/recruitment/candidates/${manuId}/offers`, admin, offerBody);
+  check('cannot offer a withdrawn candidate', r.s === 400, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/offers`, admin, offerBody);
+  check('admin creates a draft offer; candidate moves to Offer', r.s === 201 && r.d.status === 'draft' && r.d.ctc === 1650000, r);
+  const offerId = r.d?.id;
+  r = await get(`/v2/recruitment/candidates/${ashaId}`, admin);
+  check('candidate is in the Offer stage', r.d.candidate.stage === 'offer' && r.d.candidate.offer_status === 'draft' && r.d.offers.length === 1, r.d.candidate);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/offers`, admin, offerBody);
+  check('only one open offer per candidate', r.s === 409, r);
+  r = await put(`/v2/recruitment/offers/${offerId}`, admin, { ctc: 1700000 });
+  check('edit a draft offer', r.s === 200 && r.d.ctc === 1700000, r);
+  r = await get(`/v2/recruitment/offers/${offerId}/pdf`, admin, { raw: true });
+  check('offer letter PDF generated', r.s === 200 && r.headers.get('content-type') === 'application/pdf' && r.buf.subarray(0, 5).toString() === '%PDF-' && r.buf.length > 1500, r.s);
+  r = await get(`/v2/recruitment/offers/${offerId}/pdf`, mgr.token, { raw: true });
+  check('hiring manager can download the letter', r.s === 200, r.s);
+  r = await get(`/v2/recruitment/offers/${offerId}/pdf`, mgr2.token);
+  check('other manager cannot', r.s === 403, r);
+  r = await get('/v2/recruitment/offers', mgr.token);
+  check('hiring manager lists offers for their jobs (read-only)', r.s === 200 && r.d.some(o => o.id === offerId), r.d);
+  r = await get('/v2/recruitment/offers', mgr2.token);
+  check('other manager sees none of them', r.s === 200 && !r.d.some(o => o.id === offerId), r.d);
+  r = await post(`/v2/recruitment/offers/${offerId}/respond`, admin, { response: 'accepted' });
+  check('cannot record a response before sending', r.s === 400, r);
+  r = await post(`/v2/recruitment/offers/${offerId}/convert`, admin, {});
+  check('cannot convert a non-accepted offer', r.s === 400, r);
+  r = await post(`/v2/recruitment/offers/${offerId}/send`, mgr.token, {});
+  check('manager cannot send offers', r.s === 403, r);
+  r = await post(`/v2/recruitment/offers/${offerId}/send`, admin, {});
+  check('send the offer', r.s === 200 && r.d.status === 'sent' && !!r.d.sent_at, r);
+  r = await put(`/v2/recruitment/offers/${offerId}`, admin, { ctc: 1 });
+  check('sent offers are locked', r.s === 400, r);
+  r = await post(`/v2/recruitment/offers/${offerId}/respond`, admin, { response: 'maybe' });
+  check('invalid response rejected', r.s === 422, r);
+  r = await post(`/v2/recruitment/offers/${offerId}/respond`, admin, { response: 'accepted' });
+  check('record acceptance', r.s === 200 && r.d.status === 'accepted', r);
+  r = await get('/v2/recruitment/offers?status=accepted', mgr2.token);
+  check('offer status filter stays inside the manager scope', r.s === 200 && !r.d.some(o => o.id === offerId), r.d);
+  r = await get(`/v2/recruitment/offers?job_id=${jobId}`, mgr2.token);
+  check('offer job filter for an unmanaged job is refused', r.s === 403, r);
+  r = await get(`/v2/recruitment/candidates/${ashaId}`, admin);
+  check('candidate shows Offer accepted', r.d.candidate.stage === 'offer' && r.d.candidate.offer_status === 'accepted', r.d.candidate);
+
+  section('RC-4 Convert to employee');
+  r = await post(`/v2/recruitment/offers/${offerId}/convert`, mgr.token, {});
+  check('manager cannot convert', r.s === 403, r);
+  r = await post(`/v2/recruitment/offers/${offerId}/convert`, admin, { role: 'superuser' });
+  check('invalid role rejected', r.s === 422, r);
+  r = await post(`/v2/recruitment/offers/${offerId}/convert`, admin, {});
+  check('convert creates the employee via POST /api/employees and returns a temp password', r.s === 201 && r.d.employee?.employee_id?.startsWith('EMP') && r.d.employee.email === 'asha.rao@example.org' && r.d.employee.manager_email === mgr.email && typeof r.d.temporary_password === 'string' && r.d.temporary_password.length >= 12, r);
+  const conv = r.d;
+  const newToken = conv?.temporary_password ? await login('asha.rao@example.org', conv.temporary_password) : null;
+  check('new employee can log in with the temporary password', !!newToken);
+  const empDoc = await withDb(db => db.collection('employees').findOne({ email: 'asha.rao@example.org' }));
+  check('employee record created by the existing logic (leave balance, designation)', empDoc?.designation === 'Backend Engineer II' && empDoc.department === 'Engineering' && !!empDoc.leave_balance, empDoc);
+  r = await get(`/v2/recruitment/candidates/${ashaId}`, admin);
+  check('candidate marked Hired and linked to the employee', r.d.candidate.stage === 'hired' && r.d.candidate.employee_id === conv?.employee?.id && !!r.d.candidate.hired_at, r.d.candidate);
+  check('hired candidate profile never leaks the temp password', !JSON.stringify(r.d).includes(conv?.temporary_password || '@@none@@'));
+  r = await get(`/v2/recruitment/jobs/${jobId}`, admin);
+  check('job closed once headcount is filled', r.d.status === 'closed' && r.d.closed_reason === 'filled' && r.d.hires_count === 1, r.d);
+  r = await get('/v2/recruitment/requisitions', admin);
+  check('requisition marked filled', r.d.find(x => x.id === reqId)?.status === 'filled', r.d.find(x => x.id === reqId));
+  r = await post(`/v2/recruitment/offers/${offerId}/convert`, admin, {});
+  check('cannot convert twice', r.s === 409, r);
+  r = await post(`/v2/recruitment/candidates/${ashaId}/stage`, admin, { stage: 'screening' });
+  check('hired candidates cannot be moved', r.s === 409, r);
+  r = await get(`/v2/recruitment/public/jobs/${slug}`);
+  check('closed job no longer accepts applications', r.s === 200 && r.d.job.accepting_applications === false, r.d);
+  r = await multipart(`/v2/recruitment/public/jobs/${slug}/apply`, null, applyFields({ email: 'late@mail.test' }), pdfFile(resumePdf), { ip: nextIp() });
+  check('applying to a closed job returns 410', r.s === 410, r);
+  r = await get('/v2/recruitment/analytics', admin);
+  check('time-to-hire computed', r.d.time_to_hire.hires === 1 && r.d.time_to_hire.average_days >= 0 && r.d.offers.accepted === 1, r.d.time_to_hire);
+
+  section('RC-4 Decline, expiry and auto-close');
+  const salesCands = await get(`/v2/recruitment/candidates?job_id=${salesJobId}`, admin);
+  const [s1, s2, s3] = salesCands.d.candidates;
+  r = await post(`/v2/recruitment/candidates/${s1.id}/offers`, admin, { ...offerBody, designation: 'Sales Lead', department: 'Sales' });
+  const declineOffer = r.d?.id;
+  await post(`/v2/recruitment/offers/${declineOffer}/send`, admin, {});
+  r = await post(`/v2/recruitment/offers/${declineOffer}/respond`, admin, { response: 'declined', note: 'Counter offer' });
+  check('record a declined offer', r.s === 200 && r.d.status === 'declined', r);
+  r = await post(`/v2/recruitment/candidates/${s1.id}/offers`, admin, { ...offerBody, designation: 'Sales Lead', department: 'Sales', ctc: 1800000 });
+  check('a new offer can follow a declined one', r.s === 201, r);
+  await del(`/v2/recruitment/offers/${r.d.id}`, admin);
+  r = await post(`/v2/recruitment/candidates/${s2.id}/offers`, admin, { ...offerBody, designation: 'Sales Lead', department: 'Sales' });
+  const expOffer = r.d?.id;
+  await post(`/v2/recruitment/offers/${expOffer}/send`, admin, {});
+  await withDb(db => db.collection('job_offers').updateOne({ id: expOffer }, { $set: { expiry_date: isoDay(-1) } }));
+  r = await post('/v2/jobs/offer-expiry/run', admin, {});
+  check("cron 'offer-expiry' expires lapsed offers", r.s === 200 && r.d.result.expired >= 1 && r.d.result.offer_ids.includes(expOffer), r);
+  r = await get(`/v2/recruitment/offers/${expOffer}`, admin);
+  check('offer status is expired', r.d.status === 'expired', r.d);
+  r = await post(`/v2/recruitment/offers/${expOffer}/respond`, admin, { response: 'accepted' });
+  check('cannot accept an expired offer', r.s === 400, r);
+  r = await post(`/v2/recruitment/candidates/${s3.id}/offers`, admin, { ...offerBody, designation: 'Sales Lead', department: 'Sales' });
+  const lapsing = r.d?.id;
+  await post(`/v2/recruitment/offers/${lapsing}/send`, admin, {});
+  await withDb(db => db.collection('job_offers').updateOne({ id: lapsing }, { $set: { expiry_date: isoDay(-1) } }));
+  r = await post(`/v2/recruitment/offers/${lapsing}/respond`, admin, { response: 'accepted' });
+  const lapsedDoc = await withDb(db => db.collection('job_offers').findOne({ id: lapsing }));
+  check('responding after expiry (before cron ran) also expires it', r.s === 400 && lapsedDoc.status === 'expired', { r, status: lapsedDoc?.status });
+
+  await withDb(db => db.collection('job_postings').updateOne({ id: salesJobId }, { $set: { closing_date: isoDay(-1) } }));
+  r = await get('/v2/recruitment/public/jobs');
+  check('jobs past their closing date drop off the careers page immediately', !r.d.jobs.some(j => j.id === salesJobId), r.d.jobs.map(j => j.slug));
+  r = await post('/v2/jobs/job-posting-auto-close/run', admin, {});
+  check("cron 'job-posting-auto-close' closes them", r.s === 200 && r.d.result.closed >= 1, r);
+  r = await get(`/v2/recruitment/jobs/${salesJobId}`, admin);
+  check('job status closed by cron', r.d.status === 'closed' && r.d.closed_reason === 'closing_date', r.d);
+  r = await del(`/v2/recruitment/jobs/${salesJobId}`, admin);
+  check('jobs with candidates cannot be deleted', r.s === 400, r);
+  r = await del(`/v2/recruitment/jobs/${draftJob.id}`, admin);
+  check('empty draft job can be deleted', r.s === 200, r);
+  r = await http('GET', '/v2/recruitment/offers', null);
+  check('authenticated endpoints require login', r.s === 401, r);
+});

@@ -12,7 +12,7 @@
 
 require('dotenv').config();
 const crypto = require('crypto');
-const { MongoClient } = require('mongodb');
+const { PgDocClient } = require('../db/pgdoc');
 const Mailjet = require('node-mailjet');
 
 // Configuration
@@ -192,7 +192,7 @@ async function main() {
   console.log('='.repeat(50));
 
   // Check environment variables
-  const requiredEnvVars = ['MONGO_URL', 'MAILJET_API_KEY', 'MAILJET_API_SECRET', 'MAILJET_FROM_EMAIL'];
+  const requiredEnvVars = ['DATABASE_URL', 'MAILJET_API_KEY', 'MAILJET_API_SECRET', 'MAILJET_FROM_EMAIL'];
   const missingVars = requiredEnvVars.filter(v => !process.env[v]);
 
   if (missingVars.length > 0 && !options.dryRun) {
@@ -205,17 +205,17 @@ async function main() {
     console.log('\n🔍 DRY RUN MODE - No emails will be sent\n');
   }
 
-  // Connect to MongoDB
-  const mongoUrl = process.env.MONGO_URL;
+  // Connect to PostgreSQL
+  const databaseUrl = process.env.DATABASE_URL;
   const dbName = process.env.DB_NAME || 'hrms';
 
   let client;
   try {
-    client = new MongoClient(mongoUrl);
+    client = new PgDocClient(databaseUrl);
     await client.connect();
-    console.log('✅ Connected to MongoDB\n');
+    console.log('✅ Connected to PostgreSQL\n');
   } catch (error) {
-    console.error('❌ Failed to connect to MongoDB:', error.message);
+    console.error('❌ Failed to connect to PostgreSQL:', error.message);
     process.exit(1);
   }
 

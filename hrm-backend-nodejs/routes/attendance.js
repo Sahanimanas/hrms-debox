@@ -6,15 +6,7 @@ const { authenticate } = require('../middleware/auth');
 const { requireRole, validate } = require('../middleware/roleCheck');
 const { schemas, AttendanceStatus } = require('../models/schemas');
 
-/**
- * Stable, unique key for an employee. The DB has two employee shapes:
- *  - app-created: { id (uuid), employee_id (EMPxxxx), ... }
- *  - seed-created: { _id (ObjectId), employee_code (EMPxxxx), ... }  (no employee_id)
- * Falling back here guarantees every employee gets a UNIQUE key so attendance
- * never collides across rows (e.g. all `undefined` → one shared cell).
- */
-const employeeUid = (e) =>
-  e.employee_id || e.employee_code || e.id || (e._id != null ? String(e._id) : undefined);
+const { employeeUid } = require('../utils/helpers');
 
 /**
  * GET /api/attendance

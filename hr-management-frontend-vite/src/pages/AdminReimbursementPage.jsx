@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Receipt, CheckCircle, XCircle, Clock, Send, AlertCircle, Search,
   Filter, DollarSign, Users, FileText, Eye, Image, User, X,
-  CheckSquare, Square, ChevronDown, Mail, Phone, Briefcase
+  CheckSquare, Square, ChevronDown, Mail, Phone, Briefcase, Download, ShieldAlert, Plane
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +17,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { format } from 'date-fns';
+import { exportCsv } from '@/lib/exportCsv';
+import PolicyCheckPanel from '@/modules/assets/components/PolicyCheckPanel';
+
+const safeDate = (value, pattern) => {
+  const d = new Date(value);
+  return isNaN(d) ? '—' : format(d, pattern);
+};
 
 const AdminReimbursementsPage = () => {
   const [reimbursements, setReimbursements] = useState([]);
@@ -29,9 +36,11 @@ const AdminReimbursementsPage = () => {
   const [actionType, setActionType] = useState('');
   const [adminRemarks, setAdminRemarks] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [currentCheck, setCurrentCheck] = useState(null);
 
   // Employee filter state
   const [selectedEmployeeEmail, setSelectedEmployeeEmail] = useState('all');
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [showEmployeePanel, setShowEmployeePanel] = useState(false);
 
   // Bulk selection state
@@ -98,6 +107,11 @@ const AdminReimbursementsPage = () => {
       filtered = filtered.filter(r => r.status === activeTab);
     }
 
+    // Only claims flagged by the expense policy
+    if (flaggedOnly) {
+      filtered = filtered.filter(r => r.policy_flagged);
+    }
+
     // Filter by search
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
@@ -153,7 +167,14 @@ const AdminReimbursementsPage = () => {
     setSelectedReimbursement(reimbursement);
     setActionType(action);
     setAdminRemarks('');
+    setCurrentCheck(null);
     setShowActionModal(true);
+    if (action === 'approve') {
+      // Re-run the expense policy so the approver sees the position as of now
+      api.get(`/v2/assets/expense-policies/check/${reimbursement.id}`)
+        .then(r => setCurrentCheck(r.data?.current || null))
+        .catch(() => setCurrentCheck(null));
+    }
   };
 
   const processAction = async () => {
@@ -189,27 +210,6 @@ const AdminReimbursementsPage = () => {
         ? prev.filter(x => x !== id)
         : [...prev, id]
     );
-  };
-
-  const toggleSelectAll = () => {
-    const filteredIds = getFilteredReimbursements()
-      .filter(r => {
-        // Only allow selection of actionable items
-        if (bulkActionType === 'approve' || bulkActionType === 'reject') {
-          return r.status === 'pending';
-        }
-        if (bulkActionType === 'clear') {
-          return r.status === 'approved';
-        }
-        return r.status === 'pending' || r.status === 'approved';
-      })
-      .map(r => r.id);
-
-    if (selectedIds.length === filteredIds.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(filteredIds);
-    }
   };
 
   const getSelectableItems = () => {
@@ -259,7 +259,7 @@ const AdminReimbursementsPage = () => {
       setShowBulkActionModal(false);
       setSelectedIds([]);
       fetchReimbursements();
-    } catch (error) {
+    } catch {
       toast.error('Bulk action failed');
     } finally {
       setProcessing(false);
@@ -329,6 +329,28 @@ const AdminReimbursementsPage = () => {
     return colors[index];
   };
 
+  const policyFlaggedCount = reimbursements.filter(r => r.policy_flagged && r.status === 'pending').length;
+
+  const handleExport = () => {
+    exportCsv('reimbursements', getFilteredReimbursements(), [
+      { key: 'employee_name', label: 'Employee' },
+      { key: 'employee_email', label: 'Email' },
+      { key: 'department', label: 'Department' },
+      { key: 'title', label: 'Title' },
+      { key: 'category', label: 'Category' },
+      { key: 'amount', label: 'Amount (INR)' },
+      { label: 'Expense date', value: (r) => String(r.expense_date || '').slice(0, 10) },
+      { key: 'status', label: 'Status' },
+      { key: 'trip_label', label: 'Trip' },
+      { label: 'Policy', value: (r) => r.policy_check?.status || '' },
+      { label: 'Policy notes', value: (r) => (r.policy_check?.violations || []).map(v => v.message).join('; ') },
+      { label: 'Receipt', value: (r) => r.bill_url || '' },
+      { key: 'admin_remarks', label: 'Remarks' },
+      { key: 'processed_by', label: 'Processed by' },
+      { label: 'Submitted', value: (r) => String(r.created_at || '').slice(0, 10) },
+    ]);
+  };
+
   const stats = getStats();
   const filteredReimbursements = getFilteredReimbursements();
   const employeesWithReimbursements = getEmployeesWithReimbursements();
@@ -339,27 +361,41 @@ const AdminReimbursementsPage = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
+        <div className="mb-6 sm:mb-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-slate-800 rounded-xl shadow-lg">
-                <Receipt className="w-6 h-6 text-white" />
+              <div className="p-2 sm:p-3 bg-slate-800 rounded-xl shadow-lg">
+                <Receipt className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-3xl font-bold text-slate-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
                   Reimbursement Management
                 </h1>
-                <p className="text-slate-600">Review and process employee reimbursement requests</p>
+                <p className="text-xs sm:text-sm text-slate-600">Review and process employee reimbursement requests</p>
               </div>
             </div>
-            <Button
-              variant={showEmployeePanel ? 'default' : 'outline'}
-              onClick={() => setShowEmployeePanel(!showEmployeePanel)}
-              className={showEmployeePanel ? 'bg-slate-800 hover:bg-slate-900' : ''}
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Filter by Employee
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={flaggedOnly ? 'default' : 'outline'}
+                onClick={() => { setFlaggedOnly(!flaggedOnly); setSelectedIds([]); }}
+                className={flaggedOnly ? 'bg-amber-600 hover:bg-amber-700' : ''}
+              >
+                <ShieldAlert className="w-4 h-4 mr-2" />
+                Policy exceptions{policyFlaggedCount > 0 ? ` (${policyFlaggedCount})` : ''}
+              </Button>
+              <Button variant="outline" onClick={handleExport} disabled={!filteredReimbursements.length}>
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+              <Button
+                variant={showEmployeePanel ? 'default' : 'outline'}
+                onClick={() => setShowEmployeePanel(!showEmployeePanel)}
+                className={showEmployeePanel ? 'bg-slate-800 hover:bg-slate-900' : ''}
+              >
+                <Users className="w-4 h-4 mr-2" />
+                Filter by Employee
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -672,11 +708,11 @@ const AdminReimbursementsPage = () => {
                     {filteredReimbursements.map((reimbursement) => (
                       <div
                         key={reimbursement.id}
-                        className={`border rounded-xl p-5 hover:shadow-md transition-shadow bg-white ${selectedIds.includes(reimbursement.id) ? 'border-slate-800 bg-slate-50' : 'border-slate-200'
+                        className={`border rounded-xl p-3 sm:p-5 hover:shadow-md transition-shadow bg-white ${selectedIds.includes(reimbursement.id) ? 'border-slate-800 bg-slate-50' : 'border-slate-200'
                           }`}
                       >
-                        <div className="flex items-start justify-between">
-                          <div className="flex gap-4">
+                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                          <div className="flex gap-3 sm:gap-4 min-w-0">
                             {/* Checkbox for selectable items */}
                             {(reimbursement.status === 'pending' || reimbursement.status === 'approved') && (
                               <div className="pt-1">
@@ -687,23 +723,43 @@ const AdminReimbursementsPage = () => {
                               </div>
                             )}
 
-                            <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${getAvatarColor(reimbursement.employee_name)} flex items-center justify-center text-white font-bold`}>
+                            <div className={`hidden sm:flex w-12 h-12 shrink-0 rounded-full bg-gradient-to-br ${getAvatarColor(reimbursement.employee_name)} items-center justify-center text-white font-bold`}>
                               {getInitials(reimbursement.employee_name)}
                             </div>
-                            <div>
-                              <h3 className="font-semibold text-slate-800 text-lg">{reimbursement.title}</h3>
+                            <div className="min-w-0">
+                              <h3 className="font-semibold text-slate-800 text-base sm:text-lg break-words">{reimbursement.title}</h3>
                               <p className="text-sm text-slate-600">{reimbursement.employee_name}</p>
-                              <div className="flex items-center gap-3 mt-2">
+                              <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-2">
                                 <Badge variant="outline" className="text-xs">
                                   {reimbursement.category}
                                 </Badge>
                                 <span className="text-sm text-slate-500">
-                                  {format(new Date(reimbursement.expense_date), 'MMM dd, yyyy')}
+                                  {safeDate(reimbursement.expense_date, 'MMM dd, yyyy')}
                                 </span>
                                 {getStatusBadge(reimbursement.status)}
+                                {reimbursement.policy_flagged && (
+                                  <Badge className="bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-50 gap-1">
+                                    <ShieldAlert className="w-3 h-3" />
+                                    Policy exception
+                                  </Badge>
+                                )}
+                                {!reimbursement.bill_url && reimbursement.policy_check?.receipt_required_above != null && (
+                                  <span className="text-xs text-slate-400">No receipt</span>
+                                )}
                               </div>
+                              {reimbursement.trip_label && (
+                                <p className="text-xs text-sky-700 mt-1 flex items-center gap-1">
+                                  <Plane className="w-3 h-3" />
+                                  Trip: {reimbursement.trip_label}
+                                </p>
+                              )}
                               {reimbursement.description && (
                                 <p className="text-sm text-slate-500 mt-2 max-w-xl">{reimbursement.description}</p>
+                              )}
+                              {reimbursement.policy_flagged && (
+                                <div className="max-w-xl">
+                                  <PolicyCheckPanel check={reimbursement.policy_check} compact />
+                                </div>
                               )}
                               {reimbursement.admin_remarks && (
                                 <div className="mt-2 p-2 bg-slate-50 rounded-lg max-w-xl">
@@ -715,8 +771,8 @@ const AdminReimbursementsPage = () => {
                             </div>
                           </div>
 
-                          <div className="text-right">
-                            <p className="text-2xl font-bold text-slate-800">₹{parseFloat(reimbursement.amount).toLocaleString()}</p>
+                          <div className="md:text-right shrink-0">
+                            <p className="text-xl sm:text-2xl font-bold text-slate-800">₹{parseFloat(reimbursement.amount).toLocaleString()}</p>
 
                             {reimbursement.bill_url && (
                               <a
@@ -731,7 +787,7 @@ const AdminReimbursementsPage = () => {
                             )}
 
                             {/* Action Buttons */}
-                            <div className="flex gap-2 mt-4 justify-end">
+                            <div className="flex flex-wrap gap-2 mt-3 md:mt-4 md:justify-end">
                               {reimbursement.status === 'pending' && (
                                 <>
                                   <Button
@@ -801,6 +857,13 @@ const AdminReimbursementsPage = () => {
                     </p>
                   </div>
                 </div>
+
+                {actionType === 'approve' && (currentCheck || selectedReimbursement.policy_check) && (
+                  <div className="mb-4 space-y-1">
+                    <p className="text-xs font-medium text-slate-500">Expense policy{currentCheck ? ' (current)' : ' (at submission)'}</p>
+                    <PolicyCheckPanel check={currentCheck || selectedReimbursement.policy_check} />
+                  </div>
+                )}
 
                 {actionType === 'clear' && (
                   <div className="p-4 bg-emerald-50 rounded-xl mb-4 border border-emerald-200">

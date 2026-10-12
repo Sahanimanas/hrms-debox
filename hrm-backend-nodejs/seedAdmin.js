@@ -13,18 +13,18 @@
  *   node seedAdmin.js <email> <password> "<Full Name>"
  */
 
-const { MongoClient } = require('mongodb');
+const { PgDocClient } = require('./db/pgdoc');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
-const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres@localhost:5432/hrms';
 const DB_NAME = process.env.DB_NAME || 'hrms';
 
 // CLI args (with sensible defaults)
 const email = (process.argv[2] || 'admin@debox.com').toLowerCase().trim();
 const password = process.argv[3] || 'Admin@123';
-const fullName = process.argv[4] || 'Debox';
+const fullName = process.argv[4] || 'Xeno-HR Admin';
 
 const defaultLeaveBalance = {
   sick_leave: 10.0,
@@ -34,7 +34,7 @@ const defaultLeaveBalance = {
 };
 
 async function run() {
-  const client = new MongoClient(MONGO_URL);
+  const client = new PgDocClient(DATABASE_URL);
   await client.connect();
   const db = client.db(DB_NAME);
   console.log(`✅ Connected to database: ${DB_NAME}`);

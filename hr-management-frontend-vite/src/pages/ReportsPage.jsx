@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { FileText, Download, Calendar, Filter, Users, Building2 } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { FileText, Download, Calendar, Filter, BarChart3, Users, CalendarCheck, IndianRupee, FileSpreadsheet, ArrowRight, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -7,200 +8,171 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { getAuth } from '@/lib/auth';
+import { exportCsv } from '@/lib/exportCsv';
 import { format } from 'date-fns';
-import Papa from 'papaparse';
+
+const STATUS_STYLES = {
+  approved: 'bg-green-100 text-green-700',
+  rejected: 'bg-red-100 text-red-700',
+  pending: 'bg-orange-100 text-orange-700',
+  manager_approved: 'bg-blue-100 text-blue-700',
+};
+const STATUS_LABELS = { approved: 'Approved', rejected: 'Rejected', pending: 'Pending', manager_approved: 'Manager approved', cancelled: 'Cancelled' };
+
+const LEAVE_COLUMNS = [
+  { key: 'employee_name', label: 'Employee Name' },
+  { key: 'employee_code', label: 'Employee ID' },
+  { key: 'department', label: 'Department' },
+  { key: 'designation', label: 'Designation' },
+  { key: 'leave_type', label: 'Leave Type' },
+  { key: 'start_date', label: 'Start Date' },
+  { key: 'end_date', label: 'End Date' },
+  { key: 'days_count', label: 'Days Count' },
+  { key: 'reason', label: 'Reason' },
+  { label: 'Status', value: (r) => STATUS_LABELS[r.status] || r.status },
+  { key: 'applied_on', label: 'Applied Date' },
+];
+
+const fmtDay = (d) => (d ? format(new Date(`${d}T00:00:00`), 'dd MMM') : '—');
+
+const ANALYTICS_LINKS = [
+  { to: '/analytics/people', title: 'People analytics', text: 'Headcount, joiners & leavers, attrition, splits', icon: Users, roles: ['admin', 'manager'] },
+  { to: '/analytics/attendance', title: 'Attendance & leave', text: 'Attendance %, late marks, absenteeism, leave usage', icon: CalendarCheck, roles: ['admin', 'manager'] },
+  { to: '/analytics/payroll-cost', title: 'Payroll cost', text: 'Monthly cost, cost per head, by department', icon: IndianRupee, roles: ['admin'] },
+  { to: '/analytics/reports', title: 'Custom reports', text: 'Build, save and schedule reports by email', icon: FileSpreadsheet, roles: ['admin', 'manager'] },
+];
 
 const ReportsPage = () => {
+  const { user } = getAuth();
+  const role = user?.role;
   const [employees, setEmployees] = useState([]);
-  const [leaves, setLeaves] = useState([]);
   const [organizations, setOrganizations] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
-
+  const [report, setReport] = useState({ rows: [], summary: null });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [filters, setFilters] = useState({
-    reportType: 'monthly_leaves',
     month: format(new Date(), 'yyyy-MM'),
-    employee_id: 'all',
+    employee_email: 'all',
     department: 'all',
     organization_id: 'all',
-    leave_status: 'all'
+    leave_status: 'all',
   });
 
   useEffect(() => {
-    fetchData();
+    let cancelled = false;
+    Promise.all([api.get('/employees'), api.get('/organizations').catch(() => ({ data: [] })), api.get('/v2/analytics/filters').catch(() => null)])
+      .then(([empRes, orgRes, filterRes]) => {
+        if (cancelled) return;
+        setEmployees(empRes.data || []);
+        setOrganizations(orgRes.data || []);
+        setDepartments(filterRes?.data?.departments || [...new Set((empRes.data || []).map(e => e.department).filter(Boolean))].sort());
+      })
+      .catch(() => toast.error('Failed to load filter options'));
+    return () => { cancelled = true; };
   }, []);
 
-  const fetchData = async () => {
+  const params = {
+    month: filters.month,
+    ...(filters.employee_email !== 'all' ? { employee_email: filters.employee_email } : {}),
+    ...(filters.department !== 'all' ? { department: filters.department } : {}),
+    ...(filters.organization_id !== 'all' ? { organization_id: filters.organization_id } : {}),
+    ...(filters.leave_status !== 'all' ? { status: filters.leave_status } : {}),
+  };
+  const paramKey = JSON.stringify(params);
+
+  const fetchReport = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const [empRes, leavesRes, orgsRes] = await Promise.all([
-        api.get('/employees'),
-        api.get('/leaves/all'),
-        api.get('/organizations')
-      ]);
-
-      setEmployees(empRes.data);
-      setLeaves(leavesRes.data);
-      setOrganizations(orgsRes.data);
-      console.log("This is the data from the leaves api: ", leavesRes.data)
-
-      // Extract unique departments
-      const depts = [...new Set(empRes.data.map(emp => emp.department))];
-      setDepartments(depts);
-    } catch (error) {
-      toast.error('Failed to load data');
-      console.error(error);
+      const r = await api.get('/v2/analytics/leave-report', { params: JSON.parse(paramKey) });
+      setReport(r.data);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to load the leave report');
     } finally {
       setLoading(false);
     }
-  };
+  }, [paramKey]);
 
-  const filterLeaves = () => {
-    let filtered = [...leaves];
-
-    // Filter by month
-    if (filters.month) {
-      const [year, month] = filters.month.split('-');
-      filtered = filtered.filter(leave => {
-        const leaveDate = new Date(leave.start_date);
-        return leaveDate.getFullYear() === parseInt(year) &&
-          leaveDate.getMonth() === parseInt(month) - 1;
-      });
-    }
-
-    // Filter by employee
-    if (filters.employee_id !== 'all') {
-      filtered = filtered.filter(leave => leave.employee_id === filters.employee_id);
-    }
-
-    // Filter by department
-    if (filters.department !== 'all') {
-      const deptEmployees = employees.filter(emp => emp.department === filters.department);
-      const deptEmployeeIds = deptEmployees.map(emp => emp.id);
-      filtered = filtered.filter(leave => deptEmployeeIds.includes(leave.employee_id));
-    }
-
-    // Filter by organization
-    if (filters.organization_id !== 'all') {
-      const orgEmployees = employees.filter(emp => emp.organization_id === filters.organization_id);
-      const orgEmployeeIds = orgEmployees.map(emp => emp.id);
-      filtered = filtered.filter(leave => orgEmployeeIds.includes(leave.employee_id));
-    }
-
-    // Filter by status
-    if (filters.leave_status !== 'all') {
-      filtered = filtered.filter(leave => leave.status === filters.leave_status);
-    }
-
-    return filtered;
-  };
+  useEffect(() => { if (filters.month) fetchReport(); }, [fetchReport, filters.month]);
 
   const exportToCSV = () => {
-    setGenerating(true);
-
-    try {
-      const filteredLeaves = filterLeaves();
-
-      if (filteredLeaves.length === 0) {
-        toast.error('No data to export');
-        setGenerating(false);
-        return;
-      }
-
-      // Prepare CSV data
-      const csvData = filteredLeaves.map(leave => {
-        const employee = employees.find(e => e.id === leave.employee_id);
-        return {
-          'Employee Name': employee?.full_name || 'N/A',
-          'Employee ID': employee?.employee_id || employee?.id || 'N/A',
-          'Department': employee?.department || 'N/A',
-          'Designation': employee?.designation || 'N/A',
-          'Leave Type': leave.leave_type,
-          'Start Date': format(new Date(leave.start_date), 'dd/MM/yyyy'),
-          'End Date': format(new Date(leave.end_date), 'dd/MM/yyyy'),
-          'Days Count': leave.days_count,
-          'Reason': leave.reason || '',
-          'Status': leave.status.charAt(0).toUpperCase() + leave.status.slice(1),
-          'Applied Date': format(new Date(leave.created_at), 'dd/MM/yyyy')
-        };
-      });
-
-      // Convert to CSV
-      const csv = Papa.unparse(csvData);
-
-      // Create and download file
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-
-      link.setAttribute('href', url);
-      link.setAttribute('download', `leave_report_${filters.month}_${Date.now()}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      toast.success('Report exported successfully!');
-    } catch (error) {
-      console.error('Error generating CSV:', error);
-      toast.error('Failed to generate report');
-    } finally {
-      setGenerating(false);
-    }
+    if (!report.rows.length) return toast.error('No data to export');
+    exportCsv(`leave_report_${filters.month}.csv`, report.rows, LEAVE_COLUMNS);
+    toast.success('Report exported');
   };
 
-  if (loading) {
-    return <div className="p-8 text-slate-500">Loading...</div>;
-  }
-
-  const filteredLeaves = filterLeaves();
+  const rows = report.rows;
+  const s = report.summary;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+      <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            Leave Reports
-          </h1>
-          <p className="text-slate-600">Generate and export leave reports with filters</p>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="p-2 sm:p-3 bg-slate-800 rounded-lg sm:rounded-xl shadow-lg">
+            <BarChart3 className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+              Reports
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-600">Analytics dashboards, custom reports and the monthly leave report</p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Analytics hub links */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+          {ANALYTICS_LINKS.filter(l => l.roles.includes(role)).map((l) => {
+            const Icon = l.icon;
+            return (
+              <Link key={l.to} to={l.to} className="group rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm hover:shadow-md hover:border-slate-300 transition-all">
+                <div className="flex items-center justify-between">
+                  <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center"><Icon className="w-4 h-4" /></div>
+                  <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-slate-700 transition-colors" />
+                </div>
+                <p className="mt-2 font-medium text-slate-900 text-sm">{l.title}</p>
+                <p className="text-xs text-slate-500">{l.text}</p>
+              </Link>
+            );
+          })}
+        </div>
+
+        <h2 className="text-base sm:text-lg font-semibold text-slate-900 flex items-center gap-2 pt-1">
+          <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" /> Leave report
+          {role === 'manager' && <span className="text-xs font-normal text-slate-500">(your team)</span>}
+        </h2>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Filters Card */}
-          <Card className="lg:col-span-1 border-slate-100 shadow-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="w-5 h-5" />
+          <Card className="lg:col-span-1 border-slate-100 shadow-sm h-fit">
+            <CardHeader className="p-3 sm:p-5">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Filter className="w-4 h-4" />
                 Filters
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 p-3 sm:p-5 pt-0 sm:pt-0">
               <div>
                 <Label htmlFor="month-select">Month *</Label>
                 <Input
                   id="month-select"
                   type="month"
                   value={filters.month}
-                  onChange={(e) => setFilters({ ...filters, month: e.target.value })}
+                  onChange={(e) => e.target.value && setFilters({ ...filters, month: e.target.value })}
                   className="mt-1"
                 />
               </div>
 
               <div>
-                <Label htmlFor="employee-select">Employee</Label>
-                <Select
-                  value={filters.employee_id}
-                  onValueChange={(value) => setFilters({ ...filters, employee_id: value })}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="All Employees" />
-                  </SelectTrigger>
+                <Label>Employee</Label>
+                <Select value={filters.employee_email} onValueChange={(value) => setFilters({ ...filters, employee_email: value })}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="All Employees" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Employees</SelectItem>
-                    {employees.map(emp => (
-                      <SelectItem key={emp.id} value={emp.id}>
+                    {employees.filter(emp => emp.email).map(emp => (
+                      <SelectItem key={emp.email} value={emp.email}>
                         {emp.full_name} ({emp.employee_id})
                       </SelectItem>
                     ))}
@@ -209,146 +181,113 @@ const ReportsPage = () => {
               </div>
 
               <div>
-                <Label htmlFor="dept-select">Department</Label>
-                <Select
-                  value={filters.department}
-                  onValueChange={(value) => setFilters({ ...filters, department: value })}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="All Departments" />
-                  </SelectTrigger>
+                <Label>Department</Label>
+                <Select value={filters.department} onValueChange={(value) => setFilters({ ...filters, department: value })}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="All Departments" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Departments</SelectItem>
-                    {departments.map(dept => (
-                      <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                    ))}
+                    {departments.map(dept => <SelectItem key={dept} value={dept}>{dept}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
 
-              <div>
-                <Label htmlFor="org-select">Organization</Label>
-                <Select
-                  value={filters.organization_id}
-                  onValueChange={(value) => setFilters({ ...filters, organization_id: value })}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="All Organizations" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Organizations</SelectItem>
-                    {organizations.map(org => (
-                      <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {role === 'admin' && (
+                <div>
+                  <Label>Organization</Label>
+                  <Select value={filters.organization_id} onValueChange={(value) => setFilters({ ...filters, organization_id: value })}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="All Organizations" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Organizations</SelectItem>
+                      {organizations.map(org => <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div>
-                <Label htmlFor="status-select">Leave Status</Label>
-                <Select
-                  value={filters.leave_status}
-                  onValueChange={(value) => setFilters({ ...filters, leave_status: value })}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="All Status" />
-                  </SelectTrigger>
+                <Label>Leave Status</Label>
+                <Select value={filters.leave_status} onValueChange={(value) => setFilters({ ...filters, leave_status: value })}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="All Status" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="manager_approved">Manager Approved</SelectItem>
                     <SelectItem value="approved">Approved</SelectItem>
                     <SelectItem value="rejected">Rejected</SelectItem>
-                    <SelectItem value="manager_approved">Manager Approved</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <Button
-                onClick={exportToCSV}
-                disabled={generating}
-                className="w-full bg-slate-800 hover:bg-slate-900"
-              >
+              <Button onClick={exportToCSV} disabled={loading || !rows.length} className="w-full bg-slate-800 hover:bg-slate-900">
                 <Download className="w-4 h-4 mr-2" />
-                {generating ? 'Generating...' : 'Export CSV'}
+                Export CSV
               </Button>
             </CardContent>
           </Card>
 
           {/* Preview Card */}
           <Card className="lg:col-span-2 border-slate-100 shadow-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5" />
+            <CardHeader className="p-3 sm:p-5">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="w-4 h-4" />
                 Report Preview
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              {/* Summary Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-slate-50 p-4 rounded-lg">
-                  <div className="text-2xl font-bold text-slate-900">{filteredLeaves.length}</div>
-                  <div className="text-sm text-slate-600">Total Leaves</div>
+            <CardContent className={`p-3 sm:p-5 pt-0 sm:pt-0 transition-opacity ${loading ? 'opacity-50' : ''}`}>
+              {error && (
+                <div className="mb-4 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+                  <button type="button" className="ml-auto underline" onClick={fetchReport}>Retry</button>
                 </div>
-                <div className="bg-green-50 p-4 rounded-lg">
-                  <div className="text-2xl font-bold text-green-700">
-                    {filteredLeaves.filter(l => l.status === 'approved').length}
-                  </div>
-                  <div className="text-sm text-green-600">Approved</div>
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4 mb-6">
+                <div className="bg-slate-50 p-3 sm:p-4 rounded-lg">
+                  <div className="text-xl sm:text-2xl font-bold text-slate-900">{s?.total ?? 0}</div>
+                  <div className="text-xs sm:text-sm text-slate-600">Total Leaves</div>
                 </div>
-                <div className="bg-orange-50 p-4 rounded-lg">
-                  <div className="text-2xl font-bold text-orange-700">
-                    {filteredLeaves.filter(l => l.status === 'pending').length}
-                  </div>
-                  <div className="text-sm text-orange-600">Pending</div>
+                <div className="bg-green-50 p-3 sm:p-4 rounded-lg">
+                  <div className="text-xl sm:text-2xl font-bold text-green-700">{s?.approved ?? 0}</div>
+                  <div className="text-xs sm:text-sm text-green-600">Approved ({s?.days ?? 0} days)</div>
                 </div>
-                <div className="bg-red-50 p-4 rounded-lg">
-                  <div className="text-2xl font-bold text-red-700">
-                    {filteredLeaves.filter(l => l.status === 'rejected').length}
-                  </div>
-                  <div className="text-sm text-red-600">Rejected</div>
+                <div className="bg-orange-50 p-3 sm:p-4 rounded-lg">
+                  <div className="text-xl sm:text-2xl font-bold text-orange-700">{s?.pending ?? 0}</div>
+                  <div className="text-xs sm:text-sm text-orange-600">Pending</div>
+                </div>
+                <div className="bg-red-50 p-3 sm:p-4 rounded-lg">
+                  <div className="text-xl sm:text-2xl font-bold text-red-700">{s?.rejected ?? 0}</div>
+                  <div className="text-xs sm:text-sm text-red-600">Rejected</div>
                 </div>
               </div>
 
-              {/* Leave List Preview */}
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {filteredLeaves.length === 0 ? (
+              <div className="space-y-3 max-h-[32rem] overflow-y-auto">
+                {loading && !rows.length ? (
+                  <div className="text-center py-12 text-slate-500 text-sm">Loading…</div>
+                ) : rows.length === 0 ? (
                   <div className="text-center py-12 text-slate-500">
                     <Calendar className="w-12 h-12 mx-auto mb-4 text-slate-300" />
                     <p>No leaves found for the selected filters</p>
                   </div>
                 ) : (
-                  filteredLeaves.slice(0, 10).map(leave => {
-                    const employee = employees.find(e => e.email === leave.employee_email);
-                    console.log("This is the employee: ", employee)
-                    return (
-                      <div key={leave.id} className="border border-slate-200 rounded-lg p-4 bg-white">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <h4 className="font-semibold text-slate-900">{employee?.full_name || 'N/A'}</h4>
-                            <p className="text-sm text-slate-600">{employee?.department || 'N/A'}</p>
-                          </div>
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${leave.status === 'approved' ? 'bg-green-100 text-green-700' :
-                            leave.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                              'bg-orange-100 text-orange-700'
-                            }`}>
-                            {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
-                          </span>
+                  rows.map(leave => (
+                    <div key={leave.id} className="border border-slate-200 rounded-lg p-3 sm:p-4 bg-white">
+                      <div className="flex justify-between items-start gap-2 mb-2">
+                        <div className="min-w-0">
+                          <h4 className="font-semibold text-slate-900 truncate">{leave.employee_name}</h4>
+                          <p className="text-xs sm:text-sm text-slate-600">{leave.department} · {leave.employee_code}</p>
                         </div>
-                        <div className="flex gap-4 text-sm text-slate-600">
-                          <span>{leave.leave_type}</span>
-                          <span>•</span>
-                          <span>{format(new Date(leave.start_date), 'dd MMM')} - {format(new Date(leave.end_date), 'dd MMM')}</span>
-                          <span>•</span>
-                          <span>{leave.days_count} days</span>
-                        </div>
+                        <span className={`px-2 py-1 rounded text-xs font-medium shrink-0 ${STATUS_STYLES[leave.status] || 'bg-slate-100 text-slate-700'}`}>
+                          {STATUS_LABELS[leave.status] || leave.status}
+                        </span>
                       </div>
-                    );
-                  })
-                )}
-                {filteredLeaves.length > 10 && (
-                  <p className="text-center text-sm text-slate-500 pt-2">
-                    Showing 10 of {filteredLeaves.length} leaves. Export PDF to see all.
-                  </p>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs sm:text-sm text-slate-600">
+                        <span>{leave.leave_type}</span>
+                        <span>•</span>
+                        <span>{fmtDay(leave.start_date)}{leave.end_date !== leave.start_date ? ` – ${fmtDay(leave.end_date)}` : ''}</span>
+                        <span>•</span>
+                        <span>{leave.days_count} day{leave.days_count === 1 ? '' : 's'}</span>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </CardContent>

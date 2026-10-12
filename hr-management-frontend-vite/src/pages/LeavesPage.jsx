@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Calendar, X, Gift, AlertCircle, Clock, AlertTriangle, Info, CheckCircle2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { format, eachDayOfInterval, differenceInDays, addDays } from 'date-fns';
+import { format, eachDayOfInterval, differenceInDays } from 'date-fns';
 
 const LeavesPage = () => {
   const [leaves, setLeaves] = useState([]);
@@ -20,14 +20,13 @@ const LeavesPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [leaveBalance, setLeaveBalance] = useState({});
-  const [compOffBalance, setCompOffBalance] = useState(0);
-  const [leavePolicy, setLeavePolicy] = useState(null);
+  const [, setCompOffBalance] = useState(0);
+  const [, setLeavePolicy] = useState(null);
   const [joiningDate, setJoiningDate] = useState(null);
 
   // Validation states
-  const [validationWarnings, setValidationWarnings] = useState([]);
-  const [validationErrors, setValidationErrors] = useState([]);
-  const [isValidating, setIsValidating] = useState(false);
+  const [, setValidationWarnings] = useState([]);
+  const [, setValidationErrors] = useState([]);
   const [forceSubmit, setForceSubmit] = useState(false);
 
   // NEW: Per-day leave type selection
@@ -493,9 +492,6 @@ const LeavesPage = () => {
     return leaveBalance[key] ?? 0;
   };
 
-  const getLeaveTypeInfo = (leaveTypeName) => {
-    return leaveTypes.find(t => t.name === leaveTypeName) || {};
-  };
 
   const getMinDate = () => {
     // Use the minimum advance notice from default type or allow from today
@@ -503,6 +499,8 @@ const LeavesPage = () => {
   };
 
   // Calculate accrued balance for monthly-credited leaves
+  // Kept for reference (legacy page — the app routes /leaves to NewLeavesPage)
+  // eslint-disable-next-line no-unused-vars
   const calculateAccruedBalance = (monthlyCredit) => {
     if (!joiningDate || !monthlyCredit) return 0;
 
@@ -633,10 +631,8 @@ const LeavesPage = () => {
                   </div>
 
                   <div className="space-y-2 max-h-64 overflow-y-auto border border-slate-200 rounded-lg p-3 bg-white">
-                    {leaveForm.dates.map((dateStr, idx) => {
+                    {leaveForm.dates.map((dateStr) => {
                       const currentType = dateLeaveTypes[dateStr] || defaultLeaveType;
-                      const typeInfo = getLeaveTypeInfo(currentType);
-                      const balance = getAvailableBalance(currentType);
 
                       return (
                         <div

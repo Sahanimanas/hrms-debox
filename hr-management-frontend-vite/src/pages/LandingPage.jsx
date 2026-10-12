@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import BrandLogo from '@/components/BrandLogo';
 import {
   Users, Network, ClipboardCheck, CalendarDays, Wallet, Gift, Receipt,
   CheckSquare, DollarSign, BarChart3, Building2, Bell, ShieldCheck, Smartphone,
@@ -71,7 +72,7 @@ const LandingPage = () => {
       {/* ===== Navbar ===== */}
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-slate-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <img src="/logo_debox_tagline-w.png" alt="DeBox" className="h-9 w-auto" />
+          <BrandLogo size="md" tone="dark" />
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
             <a href="#features" className="hover:text-slate-900 transition-colors">Features</a>
@@ -125,7 +126,7 @@ const LandingPage = () => {
           </h1>
 
           <p className="mt-5 max-w-2xl mx-auto text-lg text-slate-600">
-            DeBox brings employees, attendance, leaves, payroll and approvals together —
+            Xeno-HR brings employees, attendance, leaves, payroll and approvals together —
             so your team spends less time on paperwork and more time on people.
           </p>
 
@@ -278,7 +279,7 @@ const LandingPage = () => {
             Ready to simplify your <span className="text-yellow-400">HR</span>?
           </h2>
           <p className="mt-4 text-slate-300 max-w-xl mx-auto">
-            Create your account and bring your whole team onto DeBox today.
+            Create your account and bring your whole team onto Xeno-HR today.
             No credit card required.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -302,7 +303,7 @@ const LandingPage = () => {
       {/* ===== Footer ===== */}
       <footer className="bg-slate-950 text-slate-400">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 flex flex-col sm:flex-row items-center justify-between gap-6">
-          <img src="/logo_debox_tagline-w.png" alt="DeBox" className="h-9 w-auto" />
+          <BrandLogo size="md" />
           <div className="flex items-center gap-6 text-sm">
             <a href="#features" className="hover:text-yellow-400 transition-colors">Features</a>
             <a href="#how" className="hover:text-yellow-400 transition-colors">How it works</a>
@@ -311,7 +312,7 @@ const LandingPage = () => {
           </div>
         </div>
         <div className="border-t border-slate-800 py-5 text-center text-xs text-slate-500">
-          © {new Date().getFullYear()} DeBox — Human Resource Management System.
+          © {new Date().getFullYear()} Xeno-HR — Human Resource Management System.
         </div>
       </footer>
     </div>

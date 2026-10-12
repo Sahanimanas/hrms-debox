@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Gift, Clock, CheckCircle, XCircle, Search, Calendar, User, AlertCircle } from 'lucide-react';
+import { Gift, Clock, CheckCircle, XCircle, Search, Calendar, User, AlertCircle, Download } from 'lucide-react';
+import { exportCsv } from '@/lib/exportCsv';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -134,8 +135,8 @@ const CompOffApprovalsPage = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
             <div className="p-3 bg-gradient-to-br from-violet-600 to-purple-700 rounded-xl shadow-lg">
               <Gift className="w-6 h-6 text-white" />
             </div>
@@ -146,6 +147,23 @@ const CompOffApprovalsPage = () => {
               <p className="text-slate-600">Review and approve team comp-off requests</p>
             </div>
           </div>
+          <Button
+            variant="outline"
+            className="gap-2 self-start sm:self-auto"
+            disabled={!filteredRequests.length}
+            onClick={() => exportCsv('comp-off-approvals', filteredRequests, [
+                { key: 'employee_name', label: 'Employee' },
+                { key: 'department', label: 'Department' },
+                { label: 'Work date', value: (r) => String(r.work_date || '').slice(0, 10) },
+                { key: 'days', label: 'Days' },
+                { key: 'reason', label: 'Reason' },
+                { key: 'status', label: 'Status' },
+                { key: 'remarks', label: 'Remarks' },
+                { label: 'Requested on', value: (r) => String(r.created_at || '').slice(0, 10) },
+              ])}
+          >
+            <Download className="w-4 h-4" /> Export CSV
+          </Button>
         </div>
 
         {/* Stats Cards */}

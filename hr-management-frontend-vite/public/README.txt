@@ -1,26 +1,21 @@
-Favicon.pub Package Description
-===================
+Xeno-HR icons
+=============
 
-This package contains the following files:
+Yellow (#FACC15) rounded tile with a bold dark-slate (#0F172A) geometric "X".
+Generated programmatically (Node + zlib, no image tools) — see the platform
+module notes. Regenerate all files together if the artwork changes.
 
-PNG Format:
-- favicon-16x16.png (16x16 pixels, for browser tabs)
-- favicon-32x32.png (32x32 pixels, for taskbars)
-- favicon-48x48.png (48x48 pixels, for desktop shortcuts)
-- android-chrome-192x192.png (192x192 pixels, Android PWA icon)
-- android-chrome-512x512.png (512x512 pixels, Android PWA launch icon)
+PNG:
+- favicon-16x16.png, favicon-32x32.png, favicon-48x48.png   browser tabs / shortcuts
+- android-chrome-192x192.png, android-chrome-512x512.png    PWA icons (rounded tile, purpose "any")
+- maskable-icon-512x512.png                                 PWA maskable icon (full bleed, mark inside the safe zone)
+- apple-touch-icon.png (180), apple-touch-icon-152x152.png,
+  apple-touch-icon-167x167.png, apple-touch-icon-180x180.png  iOS (full bleed; iOS rounds the corners)
+- logo.png (512)                                            generic logo tile
 
-Apple Icons:
-- apple-touch-icon.png (180x180 pixels, default iOS icon)
-- apple-touch-icon-152x152.png (152x152 pixels, iPad icon)
-- apple-touch-icon-167x167.png (167x167 pixels, iPad Pro icon)
-- apple-touch-icon-180x180.png (180x180 pixels, iPhone icon)
-
-Other Formats:
-- favicon.ico (Traditional ICO format containing multiple sizes. Note that browsers/OS may choose smaller sizes due to caching. Use professional ICO viewers to verify.)
- - favicon.svg (Vectorized from your uploaded image using ImageTracer)
- - safari-pinned-tab.svg (Vectorized from your uploaded image)
-- site.webmanifest (PWA manifest file)
-
-Usage:
-Place all files in your website's root directory, then add the following link tags to your HTML's <head> section.
+Other:
+- favicon.ico            16/32/48 PNG-compressed ICO
+- favicon.svg            scalable favicon
+- safari-pinned-tab.svg  monochrome mask icon
+- offline.html           shown by the service worker when offline and the page isn't cached
+- site.webmanifest       legacy manifest (vite-plugin-pwa generates manifest.webmanifest)

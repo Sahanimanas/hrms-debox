@@ -36,6 +36,12 @@ import MyCompOffPage from './pages/MyCompoffPage';
 import CompOffApprovalsPage from './pages/CompoffApprovalPage';
 import AdminCompOffPage from './pages/AdminCompoffPage';
 import LeaveBalanceManagement from './pages/LeaveBalanceManagement';
+import MyAttendancePage from './pages/MyAttendancePage';
+import ShiftsPage from './pages/ShiftsPage';
+import AttendanceRequestsPage from './pages/AttendanceRequestsPage';
+import { moduleRoutes, modulePublicRoutes } from './modules/registry';
+import PmLayout from './modules/projects/components/PmLayout';
+import { pmRoutes } from './modules/projects/routes';
 
 // Root of "/":
 //  - logged in        -> the app shell (Layout) with the dashboard + nested pages
@@ -49,6 +55,9 @@ const RootGate = () => {
   return pathname === '/' ? <LandingPage /> : <Navigate to="/login" replace />;
 };
 
+// Xeno PM (/pm/*) has its own shell; guests sign in with the PM workspace preselected
+const PmGate = () => (isAuthenticated() ? <PmLayout /> : <Navigate to="/login?app=pm" replace />);
+
 function App() {
   return (
     <div className="App">
@@ -58,6 +67,13 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          {modulePublicRoutes.map(r => <Route key={r.path} path={r.path} element={r.element} />)}
+
+          <Route path="/pm" element={<PmGate />}>
+            {pmRoutes.map(r => (r.index
+              ? <Route key="index" index element={r.element} />
+              : <Route key={r.path} path={r.path} element={r.element} />))}
+          </Route>
 
           <Route path="/" element={<RootGate />}>
             <Route index element={<DashboardPage />} />
@@ -85,6 +101,10 @@ function App() {
             <Route path="/compoffapproval" element={<CompOffApprovalsPage />} />
             <Route path="/admincompoff" element={<AdminCompOffPage />} />
             <Route path="/admin/leave-management" element={<LeaveBalanceManagement />} />
+            <Route path="my-attendance" element={<MyAttendancePage />} />
+            <Route path="shifts" element={<ShiftsPage />} />
+            <Route path="time-tracking" element={<AttendanceRequestsPage />} />
+            {moduleRoutes.map(r => <Route key={r.path} path={r.path} element={r.element} />)}
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

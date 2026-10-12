@@ -20,11 +20,18 @@ const authenticate = async (req, res, next) => {
     
     let payload;
     try {
-      payload = jwt.verify(token, config.jwtSecret);
+      payload = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] });
     } catch (error) {
       return res.status(401).json({
         detail: 'Could not validate credentials',
         headers: { 'WWW-Authenticate': 'Bearer' }
+      });
+    }
+
+    // Only access tokens may authenticate API calls (2FA challenge tokens etc. carry another typ)
+    if (payload.typ && payload.typ !== 'access') {
+      return res.status(401).json({
+        detail: 'Could not validate credentials'
       });
     }
 
@@ -47,6 +54,25 @@ const authenticate = async (req, res, next) => {
       });
     }
 
+    // Deactivated accounts (e.g. employee exited) can't use existing tokens
+    if (userDoc.is_active === false) {
+      return res.status(401).json({
+        detail: 'Your account has been deactivated. Please contact your administrator.',
+        error_code: 'ACCOUNT_DISABLED'
+      });
+    }
+
+    // Tokens issued before a password reset / forced sign-out are revoked
+    if (userDoc.tokens_valid_after && payload.iat) {
+      const validAfter = Math.floor(new Date(userDoc.tokens_valid_after).getTime() / 1000);
+      if (payload.iat < validAfter) {
+        return res.status(401).json({
+          detail: 'Your session has expired. Please sign in again.',
+          error_code: 'SESSION_REVOKED'
+        });
+      }
+    }
+
     // Normalize datetime fields
     if (typeof userDoc.created_at === 'string') {
       userDoc.created_at = new Date(userDoc.created_at);
@@ -61,7 +87,8 @@ const authenticate = async (req, res, next) => {
       employee_id: userDoc.employee_id,
       full_name: userDoc.full_name || userDoc.name,
       email: userDoc.email,
-      role: userDoc.role
+      role: userDoc.role,
+      custom_role_id: userDoc.custom_role_id || null
     };
 
     next();
@@ -130,6 +157,7 @@ const getCurrentEmployee = async (req, res, next) => {
 const createAccessToken = (email) => {
   const payload = {
     sub: email,
+    typ: 'access',
     iat: Math.floor(Date.now() / 1000)
   };
   

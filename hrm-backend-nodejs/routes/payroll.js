@@ -7,6 +7,7 @@ const { schemas, UserRole, LeaveStatus } = require('../models/schemas');
 const { generateUUID, toISOString, getDaysInMonth, getMonthName } = require('../utils/helpers');
 const { sendEmailNotification } = require('../services/emailService');
 const { generateSalarySlipEmail, generateDetailedSalarySlipEmail } = require('../utils/emailTemplates');
+const { saveStructure } = require('../services/payroll/structures');
 
 // Comp-Off Routes
 
@@ -182,53 +183,27 @@ router.post('/salary-structure/:employeeId', authenticate, requireRole([UserRole
       return res.status(404).json({ detail: 'Employee not found' });
     }
 
-    const salaryData = {
-      employee_id: employeeId,
-      basic_salary: structure.basic_salary || 0,
-      components: structure.components || [],
-      updated_at: toISOString(new Date())
-    };
-
-    // Calculate total salary
-    const ctc = salaryData.basic_salary;
-    let totalEarnings = 0;
-    let totalDeductions = 0;
-
-    for (const comp of salaryData.components) {
-      if (comp.is_percentage) {
-        if (comp.calculation_base === 'ctc' || comp.calculation_base === 'basic') {
-          comp.calculated_amount = (ctc * comp.amount) / 100;
-        } else {
-          comp.calculated_amount = comp.amount;
-        }
-      } else {
-        comp.calculated_amount = comp.amount;
-      }
-
-      if (comp.type === 'earning') {
-        totalEarnings += comp.calculated_amount;
-      } else {
-        totalDeductions += comp.calculated_amount;
-      }
+    // Optional effective month (YYYY-MM) and reason for the revision history (PY-11)
+    const effectiveFrom = structure.effective_from;
+    if (effectiveFrom != null && effectiveFrom !== '' && !/^\d{4}-(0[1-9]|1[0-2])$/.test(effectiveFrom)) {
+      return res.status(422).json({ detail: 'effective_from must be YYYY-MM' });
+    }
+    if (!Array.isArray(structure.components || [])) {
+      return res.status(422).json({ detail: 'components must be a list' });
     }
 
-    salaryData.gross_salary = totalEarnings || ctc;
-    salaryData.total_deductions = totalDeductions;
-    salaryData.net_salary = totalEarnings - totalDeductions;
+    // Saves the current structure (same totals as before), records a salary
+    // revision and updates the employee's monthly_salary
+    const { structure: salaryData, revision } = await saveStructure(db, employee, {
+      basic_salary: Number(structure.basic_salary) || 0,
+      components: structure.components || []
+    }, {
+      effectiveFrom: effectiveFrom || undefined,
+      reason: typeof structure.revision_reason === 'string' ? structure.revision_reason.slice(0, 300) : undefined,
+      user: req.user
+    });
 
-    // Update or insert
-    await db.collection('salary_structures').deleteMany({ employee_id: employeeId });
-    await db.collection('salary_structures').insertOne(salaryData);
-
-    // Update employee's monthly_salary
-    await db.collection('employees').updateOne(
-      { employee_id: employeeId },
-      { $set: { monthly_salary: salaryData.net_salary } }
-    );
-
-    delete salaryData._id;
-
-    res.json({ status: 'success', structure: salaryData });
+    res.json({ status: 'success', structure: salaryData, revision_id: revision.id });
   } catch (error) {
     console.error('Save salary structure error:', error);
     res.status(500).json({ detail: 'Internal server error' });

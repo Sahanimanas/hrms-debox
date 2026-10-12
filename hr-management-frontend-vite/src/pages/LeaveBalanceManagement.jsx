@@ -12,14 +12,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { getAuth } from '@/lib/auth';
 import { format } from 'date-fns';
 
 const LeaveBalanceManagement = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const { user } = getAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDepartment, setFilterDepartment] = useState('');
   const [filterRole, setFilterRole] = useState('');
@@ -50,16 +48,26 @@ const LeaveBalanceManagement = () => {
   const [initializeDate, setInitializeDate] = useState(new Date().toISOString().split('T')[0]);
   const [monthlyDate, setMonthlyDate] = useState(new Date().toISOString().split('T')[0]);
 
-  const leaveTypes = [
+  const DEFAULT_TYPES = [
     { key: 'casual_leave', label: 'Casual Leave' },
     { key: 'sick_leave', label: 'Sick Leave' },
     { key: 'earned_leave', label: 'Earned Leave' },
     { key: 'comp_off', label: 'Comp Off' }
   ];
+  const [leaveTypes, setLeaveTypes] = useState(DEFAULT_TYPES);
 
   useEffect(() => {
     fetchEmployees();
     loadDepartments();
+    // Every policy type that keeps a balance (incl. restricted holiday etc.), plus comp-off
+    api.get('/v2/leave/types')
+      .then((res) => {
+        const types = (res.data?.types || [])
+          .filter((t) => t.tracks_balance)
+          .map((t) => ({ key: t.key, label: t.leave_type }));
+        if (types.length) setLeaveTypes([...types, { key: 'comp_off', label: 'Comp Off' }]);
+      })
+      .catch(() => {});
   }, []);
 
   const loadDepartments = () => {
@@ -105,7 +113,8 @@ const LeaveBalanceManagement = () => {
       const response = await api.post('/admin/leave-credit/run-monthly', {
         simulate_date: monthlyDate
       });
-      toast.success(`Monthly credit applied successfully`);
+      const results = response.data?.results || {};
+      toast.success(`Monthly credit applied to ${results.processed ?? 0} employee(s)${results.skipped?.length ? `, ${results.skipped.length} already credited` : ''}`);
       setMonthlyDialogOpen(false);
       fetchEmployees();
     } catch (error) {
@@ -147,7 +156,7 @@ const LeaveBalanceManagement = () => {
     }
     setSubmitting(true);
     try {
-      const response = await api.post(
+      await api.post(
         `/admin/leave-credit/leave-balance/update/${selectedEmployee.employee_id}`,
         individualAction
       );

@@ -3,19 +3,19 @@
  * Run this once to update your database
  */
 
-const { MongoClient } = require('mongodb');
+const { PgDocClient } = require('../db/pgdoc');
 require('dotenv').config();
 
-const MONGO_URI = process.env.MONGO_URL || 'mongodb://localhost:27017/hrms';
+const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres@localhost:5432/hrms';
 
 async function migrate() {
-  const client = new MongoClient(MONGO_URI);
+  const client = new PgDocClient(DATABASE_URL);
 
   try {
     await client.connect();
-    console.log('✅ Connected to MongoDB');
+    console.log('✅ Connected to PostgreSQL');
 
-    const db = client.db();
+    const db = client.db(process.env.DB_NAME || 'hrms');
 
     // Update all leave policies to add is_unlimited field
     const result = await db.collection('leave_policies').updateMany(

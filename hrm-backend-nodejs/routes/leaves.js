@@ -8,6 +8,17 @@ const { generateUUID, normalizeLeaveType, toISOString } = require('../utils/help
 const { sendEmailNotification } = require('../services/emailService');
 const { generateLeaveApplicationEmail, generateLeaveApprovalEmail, generateLeaveEditEmail } = require('../utils/emailTemplates');
 const { createNotification, NotificationType } = require('../services/notificationService');
+const { emitEvent } = require('../services/events');
+const Joi = require('joi');
+const {
+  toKeys,
+  tracksBalance,
+  effectiveBalance,
+  ensureBalanceKey,
+  findEmployeeByEmail
+} = require('../services/leave/common');
+const { computeLeaveDays, validateTypeRules, findOverlap } = require('../services/leave/rules');
+const approvalsService = require('../services/leave/approvals');
 
 /**
  * Default monthly credit rates for leave types
@@ -21,14 +32,47 @@ const DEFAULT_MONTHLY_CREDITS = {
 
 /**
  * Helper: Calculate days from dates array
+ * A half-day application counts 0.5 for every selected date.
+ * (Sandwich days are added by services/leave/rules.computeLeaveDays.)
  */
 function calculateDaysFromDates(dates, isHalfDay = false) {
   if (!dates || dates.length === 0) return 0;
-  if (isHalfDay && dates.length === 1) {
-    return 0.5;
+  if (isHalfDay) {
+    return dates.length * 0.5;
   }
   return dates.length;
 }
+
+/** Payload for leave.approved / leave.rejected / leave.applied events. */
+const leaveEventPayload = (leave, extra = {}) => ({
+  leave_id: leave.id,
+  employee_id: leave.employee_id,
+  employee_email: leave.employee_email,
+  employee_name: leave.employee_name,
+  leave_type: leave.leave_type,
+  dates: toKeys(leave.dates),
+  days_count: leave.days_count,
+  is_half_day: !!leave.is_half_day,
+  status: leave.status,
+  ...extra
+});
+
+/** Leaves from before approval chains get an equivalent chain for display. */
+const withChain = (leave) => {
+  if (!Array.isArray(leave.approval_chain) || !leave.approval_chain.length) {
+    const chain = approvalsService.legacyChain(leave);
+    Object.assign(leave, { approval_chain: chain, ...approvalsService.currentFields(chain) });
+  }
+  return leave;
+};
+
+const validateApplicationSchema = Joi.object({
+  leave_type: Joi.string().trim().required(),
+  dates: Joi.array().items(Joi.date()).min(1).max(400).required(),
+  is_half_day: Joi.boolean().default(false),
+  half_day_period: Joi.string().valid('morning', 'afternoon').allow(null),
+  exclude_leave_id: Joi.string().allow(null, '')
+});
 
 /**
  * Helper: Format dates array for display
@@ -357,11 +401,27 @@ router.get('/leave-policy', authenticate, async (req, res) => {
 router.post('/leave-policy', authenticate, requireRole([UserRole.ADMIN]), async (req, res) => {
   try {
     const db = getDB();
-    const policyData = req.body;
+
+    // Validate known fields (unknown extra fields are kept so older/newer clients don't lose data)
+    const { error, value: policyData } = schemas.leavePolicy.validate(
+      { policies: req.body?.policies || [], clubbing_rules: req.body?.clubbing_rules || [] },
+      { abortEarly: false, allowUnknown: true }
+    );
+    if (error) {
+      return res.status(422).json({
+        detail: 'Validation failed',
+        errors: error.details.map(d => ({ field: d.path.join('.'), message: d.message }))
+      });
+    }
+    const names = policyData.policies.map(p => normalizeLeaveType(p.leave_type));
+    const duplicate = names.find((n, i) => names.indexOf(n) !== i);
+    if (duplicate) {
+      return res.status(422).json({ detail: `Leave type "${duplicate.replace(/_/g, ' ')}" is listed twice` });
+    }
 
     const policy = {
       id: 'default_policy',
-      policies: policyData.policies || [],
+      policies: policyData.policies,
       clubbing_rules: policyData.clubbing_rules || [],
       updated_at: toISOString(new Date()),
       updated_by: req.user.email
@@ -518,7 +578,12 @@ router.post('/leave-policy/apply-to-all', authenticate, requireRole([UserRole.AD
 router.post('/validate-application', authenticate, getCurrentEmployee, async (req, res) => {
   try {
     const db = getDB();
-    const { leave_type, dates } = req.body;
+    const { error: bodyError, value: body } = validateApplicationSchema.validate(req.body || {}, { stripUnknown: true });
+    if (bodyError) {
+      return res.status(422).json({ detail: 'Validation failed', errors: bodyError.details.map(d => ({ field: d.path.join('.'), message: d.message })) });
+    }
+    const { leave_type } = body;
+    const dates = datesToISOStrings(body.dates);
     const employee = req.employee;
 
     const warnings = [];
@@ -526,6 +591,53 @@ router.post('/validate-application', authenticate, getCurrentEmployee, async (re
 
     // Get leave policy for this type
     const policyItem = await getLeavePolicyForType(db, leave_type);
+
+    // Day count including the sandwich rule (LV-3) — the same number apply will charge
+    const days = await computeLeaveDays(db, { employee, dates, isHalfDay: body.is_half_day, policyItem });
+    const keys = days.dates;
+
+    const overlap = await findOverlap(db, employee.email, keys, {
+      excludeLeaveId: body.exclude_leave_id || null,
+      isHalfDay: body.is_half_day,
+      halfDayPeriod: body.half_day_period
+    });
+    if (overlap) {
+      errors.push({
+        type: 'overlap',
+        message: `You already have ${overlap.leave.leave_type} (${overlap.leave.status}) on ${overlap.date}`,
+        severity: 'error'
+      });
+    }
+
+    if (policyItem) {
+      const rule = await validateTypeRules(db, { employee, policyItem, keys, daysCount: days.days_count, excludeLeaveId: body.exclude_leave_id || null });
+      if (!rule.ok) {
+        errors.push({ type: rule.rule || 'policy', message: rule.detail, severity: 'error' });
+      }
+
+      if (tracksBalance(policyItem)) {
+        const leaveKey = normalizeLeaveType(leave_type);
+        const available = effectiveBalance(employee, policyItem, leaveKey);
+        if (available < days.days_count) {
+          errors.push({
+            type: 'balance',
+            message: `Insufficient leave balance. Available: ${available} days, Requested: ${days.days_count} days`,
+            severity: 'error',
+            available,
+            requested: days.days_count
+          });
+        }
+      }
+
+      if (days.sandwich_days > 0) {
+        warnings.push({
+          type: 'sandwich',
+          message: `${days.sandwich_days} weekly off/holiday day(s) between your leave days are counted as leave (sandwich rule)`,
+          severity: 'warning',
+          dates: days.breakdown
+        });
+      }
+    }
 
     if (policyItem) {
       // Check advance notice
@@ -561,7 +673,7 @@ router.post('/validate-application', authenticate, getCurrentEmployee, async (re
           maxBalance
         );
 
-        const daysRequested = dates.length;
+        const daysRequested = days.days_count;
 
         // Show accrued vs actual balance
         if (accruedBalance < daysRequested) {
@@ -587,7 +699,10 @@ router.post('/validate-application', authenticate, getCurrentEmployee, async (re
           advance_days_required: policyItem.advance_days_required,
           encashment_allowed: policyItem.encashment_allowed,
           carry_forward_allowed: policyItem.carry_forward_allowed,
-          clubbing_not_allowed_with: policyItem.clubbing_not_allowed_with || []
+          clubbing_not_allowed_with: policyItem.clubbing_not_allowed_with || [],
+          sandwich_rule: !!policyItem.sandwich_rule,
+          event_scope: policyItem.credit_type === 'event' ? (policyItem.event_scope || 'occurrence') : null,
+          restricted_holiday_only: !!policyItem.restricted_holiday_only
         }
       });
     }
@@ -595,7 +710,8 @@ router.post('/validate-application', authenticate, getCurrentEmployee, async (re
     res.json({
       valid: errors.length === 0,
       warnings,
-      errors
+      errors,
+      days
     });
   } catch (error) {
     console.error('Validate application error:', error);
@@ -617,10 +733,36 @@ router.post('/', authenticate, getCurrentEmployee, validate(schemas.leaveApplica
     const leaveData = req.validatedBody;
     const employee = req.employee;
 
-    const daysCount = calculateDaysFromDates(leaveData.dates, leaveData.is_half_day);
-
     // Get leave policy for validation
     const policyItem = await getLeavePolicyForType(db, leaveData.leave_type);
+
+    // Days charged, including weekly offs / holidays sandwiched between leave days (LV-3)
+    const dayInfo = await computeLeaveDays(db, {
+      employee,
+      dates: leaveData.dates,
+      isHalfDay: leaveData.is_half_day,
+      policyItem
+    });
+    const daysCount = dayInfo.days_count;
+
+    // A date can only be on one active leave
+    const overlap = await findOverlap(db, employee.email, dayInfo.dates, {
+      isHalfDay: leaveData.is_half_day,
+      halfDayPeriod: leaveData.half_day_period
+    });
+    if (overlap) {
+      return res.status(400).json({
+        detail: `You already have ${overlap.leave.leave_type} (${overlap.leave.status}) on ${overlap.date}`,
+        warning_type: 'overlap',
+        can_override: false
+      });
+    }
+
+    // Type-specific rules: per-occurrence caps, restricted holidays, gender (LV-2)
+    const typeRule = await validateTypeRules(db, { employee, policyItem, keys: dayInfo.dates, daysCount });
+    if (!typeRule.ok) {
+      return res.status(typeRule.status).json({ detail: typeRule.detail, warning_type: typeRule.rule, can_override: false });
+    }
 
     // Validate advance notice (soft warning - allow override with force flag)
     if (policyItem && policyItem.advance_days_required > 0 && !req.body.force_submit) {
@@ -644,16 +786,23 @@ router.post('/', authenticate, getCurrentEmployee, validate(schemas.leaveApplica
       });
     }
 
-    // Check leave balance (skip for unlimited leave types)
+    // Check leave balance (skip for unlimited and per-occurrence leave types)
     const leaveTypeKey = normalizeLeaveType(leaveData.leave_type);
-    const available = employee.leave_balance[leaveTypeKey] || 0;
-    const isUnlimited = policyItem?.is_unlimited || false;
+    const usesBalance = tracksBalance(policyItem);
+    const available = usesBalance ? effectiveBalance(employee, policyItem, leaveTypeKey) : Infinity;
 
-    if (!isUnlimited && available < daysCount) {
+    if (usesBalance && available < daysCount) {
       return res.status(400).json({
         detail: `Insufficient leave balance. Available: ${available} days, Requested: ${daysCount} days`
       });
     }
+    // Types added to the policy after the employee joined start from their quota
+    if (usesBalance && policyItem) await ensureBalanceKey(db, employee, policyItem, leaveTypeKey);
+
+    // Approval chain (LV-4)
+    const approvalSettings = await approvalsService.getApprovalSettings(db);
+    const chain = await approvalsService.buildChain(db, approvalSettings, employee, daysCount);
+    const managerStep = chain.find(s => s.approver_type === 'manager' && s.approver_email);
 
     // Create leave application
     const now = new Date();
@@ -664,90 +813,52 @@ router.post('/', authenticate, getCurrentEmployee, validate(schemas.leaveApplica
       employee_id: employee.id,
       employee_name: employee.full_name,
       employee_email: employee.email,
-      manager_email: employee.manager_email || null,
+      department: employee.department || null,
+      manager_email: employee.manager_email || managerStep?.approver_email || null,
       leave_type: leaveData.leave_type,
       dates: datesToISOStrings(leaveData.dates),
       days_count: daysCount,
+      applied_days: dayInfo.applied_days,
+      sandwich_days: dayInfo.sandwich_days,
+      sandwich_dates: dayInfo.sandwich_dates,
+      days_breakdown: dayInfo.breakdown,
       reason: leaveData.reason,
       is_half_day: leaveData.is_half_day || false,
       half_day_period: leaveData.half_day_period || null,
       status: LeaveStatus.PENDING,
       approvals: [],
+      approval_chain: chain,
+      ...approvalsService.currentFields(chain),
       policy_snapshot: policyItem ? {
         credit_type: policyItem.credit_type,
         monthly_credit: monthlyCredit,
         advance_days_required: policyItem.advance_days_required,
         encashment_allowed: policyItem.encashment_allowed,
-        carry_forward_allowed: policyItem.carry_forward_allowed
+        carry_forward_allowed: policyItem.carry_forward_allowed,
+        sandwich_rule: !!policyItem.sandwich_rule,
+        event_scope: policyItem.credit_type === 'event' ? (policyItem.event_scope || 'occurrence') : null,
+        tracks_balance: usesBalance
       } : null,
       created_at: toISOString(now),
       updated_at: toISOString(now)
     };
 
     await db.collection('leaves').insertOne(leaveDoc);
+    emitEvent('leave.applied', leaveEventPayload(leaveDoc));
 
-    // Send notifications
-    try {
-      const datesDisplay = formatDatesForDisplay(leaveData.dates);
-
-      const emailHtml = generateLeaveApplicationEmail(
-        employee.full_name,
-        leaveData.leave_type,
-        datesDisplay,
-        null,
-        leaveData.reason
-      );
-
-      const manager = await db.collection('employees').findOne(
-        { department: employee.department, role: 'manager' },
-        { projection: { id: 1, email: 1, phone: 1 } }
-      );
-
-      if (manager) {
-        await sendEmailNotification(
-          manager.email,
-          `Leave Application from ${employee.full_name}`,
-          emailHtml
-        );
-
-        // Create in-app notification for manager
-        await createNotification({
-          userId: manager.id,
-          userEmail: manager.email,
-          type: NotificationType.LEAVE_APPLIED,
-          title: 'New Leave Application',
-          message: `${employee.full_name} has applied for ${leaveData.leave_type} from ${datesDisplay}`,
-          actionUrl: '/approvals',
-          metadata: { leave_id: leaveDoc.id, employee_name: employee.full_name }
-        });
+    // Notify whoever approves first (and their delegates), plus email — don't block the response
+    const firstStep = approvalsService.currentStep(chain);
+    const datesDisplay = formatDatesForDisplay(leaveData.dates);
+    (async () => {
+      await approvalsService.notifyApprovers(db, leaveDoc, firstStep, {
+        title: 'New Leave Application',
+        message: `${employee.full_name} has applied for ${leaveData.leave_type} (${daysCount} day${daysCount === 1 ? '' : 's'}) from ${datesDisplay}`
+      });
+      const emailHtml = generateLeaveApplicationEmail(employee.full_name, leaveData.leave_type, datesDisplay, null, leaveData.reason);
+      if (firstStep?.approver_email) {
+        await sendEmailNotification(firstStep.approver_email, `Leave Application from ${employee.full_name}`, emailHtml);
       }
-
-      const admin = await db.collection('employees').findOne(
-        { role: 'admin' },
-        { projection: { id: 1, email: 1, phone: 1 } }
-      );
-
-      if (admin && admin.email !== manager?.email) {
-        await sendEmailNotification(
-          admin.email,
-          `Leave Application from ${employee.full_name}`,
-          emailHtml
-        );
-
-        // Create in-app notification for admin
-        await createNotification({
-          userId: admin.id,
-          userEmail: admin.email,
-          type: NotificationType.LEAVE_APPLIED,
-          title: 'New Leave Application',
-          message: `${employee.full_name} has applied for ${leaveData.leave_type} from ${datesDisplay}`,
-          actionUrl: '/approvals',
-          metadata: { leave_id: leaveDoc.id, employee_name: employee.full_name }
-        });
-      }
-    } catch (notifyError) {
-      console.error('Failed to send notification:', notifyError.message);
-    }
+    })().catch(notifyError => console.error('Failed to send notification:', notifyError.message));
 
     delete leaveDoc._id;
     normalizeLeaveDates(leaveDoc);
@@ -774,6 +885,7 @@ router.get('/my-leaves', authenticate, getCurrentEmployee, async (req, res) => {
       .toArray();
 
     leaves.forEach(normalizeLeaveDates);
+    leaves.forEach(withChain);
 
     res.json(leaves);
   } catch (error) {
@@ -790,31 +902,22 @@ router.get('/pending', authenticate, getCurrentEmployee, async (req, res) => {
   try {
     const db = getDB();
     const user = req.user;
-    const employee = req.employee;
 
-    let query = {};
-
-    if (user.role === UserRole.MANAGER) {
-      query = {
-        manager_email: employee.email,
-        status: LeaveStatus.PENDING
-      };
-    } else if (user.role === UserRole.ADMIN) {
-      query = {
-        status: { $in: [LeaveStatus.PENDING, LeaveStatus.MANAGER_APPROVED] }
-      };
-    } else {
+    if (![UserRole.MANAGER, UserRole.ADMIN].includes(user.role)) {
       return res.status(403).json({ detail: 'Not enough permissions' });
     }
 
-    const leaves = await db.collection('leaves')
-      .find(query, { projection: { _id: 0 } })
-      .sort({ created_at: -1 })
-      .toArray();
+    // Leaves whose current approval level is mine (or delegated to me); admins see all open ones
+    const query = await approvalsService.pendingQueryFor(db, user);
+    const [leaves, delegations, settings] = await Promise.all([
+      db.collection('leaves').find(query, { projection: { _id: 0 } }).sort({ created_at: -1 }).toArray(),
+      approvalsService.activeDelegationsFor(db, user.email),
+      approvalsService.getApprovalSettings(db)
+    ]);
 
     leaves.forEach(normalizeLeaveDates);
 
-    res.json(leaves);
+    res.json(leaves.map(l => approvalsService.decorateForApprover(l, user, delegations, settings)));
   } catch (error) {
     console.error('Get pending leaves error:', error);
     res.status(500).json({ detail: 'Internal server error' });
@@ -835,6 +938,7 @@ router.get('/all', authenticate, requireRole([UserRole.ADMIN]), async (req, res)
       .toArray();
 
     leaves.forEach(normalizeLeaveDates);
+    leaves.forEach(withChain);
 
     res.json(leaves);
   } catch (error) {
@@ -874,7 +978,11 @@ router.get('/calendar/me', authenticate, async (req, res) => {
       paid_leave: { bg: '#dcfce7', border: '#22c55e', text: '#166534' },
       earned_leave: { bg: '#dcfce7', border: '#22c55e', text: '#166534' },
       unpaid_leave: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
-      comp_off: { bg: '#e9d5ff', border: '#a855f7', text: '#6b21a8' }
+      comp_off: { bg: '#e9d5ff', border: '#a855f7', text: '#6b21a8' },
+      maternity_leave: { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+      paternity_leave: { bg: '#e0f2fe', border: '#0ea5e9', text: '#075985' },
+      bereavement_leave: { bg: '#e2e8f0', border: '#475569', text: '#1e293b' },
+      restricted_holiday: { bg: '#ffedd5', border: '#f97316', text: '#9a3412' }
     };
 
     const statusStyles = {
@@ -990,7 +1098,11 @@ router.get('/calendar/:employeeId', authenticate, async (req, res) => {
       paid_leave: { bg: '#dcfce7', border: '#22c55e', text: '#166534' },
       earned_leave: { bg: '#dcfce7', border: '#22c55e', text: '#166534' },
       unpaid_leave: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
-      comp_off: { bg: '#e9d5ff', border: '#a855f7', text: '#6b21a8' }
+      comp_off: { bg: '#e9d5ff', border: '#a855f7', text: '#6b21a8' },
+      maternity_leave: { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+      paternity_leave: { bg: '#e0f2fe', border: '#0ea5e9', text: '#075985' },
+      bereavement_leave: { bg: '#e2e8f0', border: '#475569', text: '#1e293b' },
+      restricted_holiday: { bg: '#ffedd5', border: '#f97316', text: '#9a3412' }
     };
 
     const statusStyles = {
@@ -1084,6 +1196,10 @@ router.put('/:leaveId/action', authenticate, getCurrentEmployee, validate(schema
     const user = req.user;
     const employee = req.employee;
 
+    if (![UserRole.MANAGER, UserRole.ADMIN].includes(user.role)) {
+      return res.status(403).json({ detail: 'Not enough permissions' });
+    }
+
     const leaveDoc = await db.collection('leaves').findOne(
       { id: leaveId },
       { projection: { _id: 0 } }
@@ -1097,67 +1213,33 @@ router.put('/:leaveId/action', authenticate, getCurrentEmployee, validate(schema
 
     const originalStatus = leaveDoc.status;
 
-    let newStatus = leaveDoc.status;
-
-    if (user.role === UserRole.MANAGER) {
-      if (leaveDoc.status !== LeaveStatus.PENDING) {
-        return res.status(400).json({ detail: 'Leave is not pending' });
+    // Multi-level approval chain (LV-4): who may act, and what the new status is
+    const settings = await approvalsService.getApprovalSettings(db);
+    let decision;
+    try {
+      decision = await approvalsService.decideAction(db, {
+        leave: leaveDoc,
+        user,
+        actorName: employee.full_name || user.full_name,
+        action,
+        comments,
+        settings
+      });
+    } catch (error) {
+      if (error instanceof approvalsService.ApprovalError) {
+        return res.status(error.status).json({ detail: error.message });
       }
-      if (leaveDoc.manager_email !== employee.email) {
-        return res.status(403).json({ detail: 'Not your team member' });
-      }
-
-      newStatus = action === 'approve' ? LeaveStatus.MANAGER_APPROVED : LeaveStatus.REJECTED;
-    } else if (user.role === UserRole.ADMIN) {
-      if (![LeaveStatus.PENDING, LeaveStatus.MANAGER_APPROVED].includes(leaveDoc.status)) {
-        return res.status(400).json({ detail: 'Leave already processed' });
-      }
-
-      newStatus = action === 'approve' ? LeaveStatus.APPROVED : LeaveStatus.REJECTED;
-    } else {
-      return res.status(403).json({ detail: 'Not enough permissions' });
+      throw error;
     }
 
-    const approvalRecord = {
-      approver_email: employee.email,
-      approver_name: employee.full_name,
-      approver_role: user.role,
-      action,
-      comments: comments || null,
-      timestamp: toISOString(new Date())
-    };
+    const newStatus = decision.newStatus;
+    const approvalRecord = decision.approvalRecord;
 
-    leaveDoc.approvals.push(approvalRecord);
+    leaveDoc.approvals = [...(leaveDoc.approvals || []), approvalRecord];
+    leaveDoc.approval_chain = decision.chain;
+    Object.assign(leaveDoc, approvalsService.currentFields(decision.chain));
     leaveDoc.status = newStatus;
     leaveDoc.updated_at = toISOString(new Date());
-
-    // Get policy to check if leave type is unlimited
-    const policyItem = await getLeavePolicyForType(db, leaveDoc.leave_type);
-    const isUnlimited = policyItem?.is_unlimited || false;
-
-    const wasBalanceNotYetDeducted = originalStatus === LeaveStatus.PENDING;
-    const isNowApproved = newStatus === LeaveStatus.MANAGER_APPROVED || newStatus === LeaveStatus.APPROVED;
-
-    if (wasBalanceNotYetDeducted && isNowApproved && !isUnlimited) {
-      const leaveTypeKey = normalizeLeaveType(leaveDoc.leave_type);
-      await db.collection('employees').updateOne(
-        { email: leaveDoc.employee_email },
-        { $inc: { [`leave_balance.${leaveTypeKey}`]: -leaveDoc.days_count } }
-      );
-      console.log(`Deducted ${leaveDoc.days_count} ${leaveTypeKey} from ${leaveDoc.employee_email}`);
-    }
-
-    const wasAlreadyDeducted = originalStatus === LeaveStatus.MANAGER_APPROVED;
-    const isNowRejected = newStatus === LeaveStatus.REJECTED;
-
-    if (wasAlreadyDeducted && isNowRejected && !isUnlimited) {
-      const leaveTypeKey = normalizeLeaveType(leaveDoc.leave_type);
-      await db.collection('employees').updateOne(
-        { email: leaveDoc.employee_email },
-        { $inc: { [`leave_balance.${leaveTypeKey}`]: leaveDoc.days_count } }
-      );
-      console.log(`Refunded ${leaveDoc.days_count} ${leaveTypeKey} to ${leaveDoc.employee_email} (rejected after manager approval)`);
-    }
 
     const updateDoc = {
       ...leaveDoc,
@@ -1172,18 +1254,64 @@ router.put('/:leaveId/action', authenticate, getCurrentEmployee, validate(schema
       }
     }
 
-    await db.collection('leaves').updateOne(
-      { id: leaveId },
+    // Only write if nobody acted on this leave since we read it (two approvers on one level)
+    const priorActions = (leaveDoc.approvals || []).length - 1;
+    const writeResult = await db.collection('leaves').updateOne(
+      {
+        id: leaveId,
+        status: originalStatus,
+        $or: [{ approvals: { $size: priorActions } }, ...(priorActions === 0 ? [{ approvals: { $exists: false } }] : [])]
+      },
       { $set: updateDoc }
     );
+    if (!writeResult.matchedCount) {
+      return res.status(409).json({ detail: 'This leave was just updated by someone else. Refresh and try again.' });
+    }
 
-    try {
+    // Per-occurrence and unlimited leave types don't move the balance
+    const policyItem = await getLeavePolicyForType(db, leaveDoc.leave_type);
+    const usesBalance = tracksBalance(policyItem);
+    const leaveTypeKey = normalizeLeaveType(leaveDoc.leave_type);
+
+    const wasBalanceNotYetDeducted = originalStatus === LeaveStatus.PENDING;
+    const isNowApproved = newStatus === LeaveStatus.MANAGER_APPROVED || newStatus === LeaveStatus.APPROVED;
+
+    if (wasBalanceNotYetDeducted && isNowApproved && usesBalance) {
+      const owner = await db.collection('employees').findOne({ email: leaveDoc.employee_email }, { projection: { _id: 0, email: 1, leave_balance: 1 } });
+      if (owner && policyItem) await ensureBalanceKey(db, owner, policyItem, leaveTypeKey);
+      await db.collection('employees').updateOne(
+        { email: leaveDoc.employee_email },
+        { $inc: { [`leave_balance.${leaveTypeKey}`]: -leaveDoc.days_count } }
+      );
+      console.log(`Deducted ${leaveDoc.days_count} ${leaveTypeKey} from ${leaveDoc.employee_email}`);
+    }
+
+    const wasAlreadyDeducted = originalStatus === LeaveStatus.MANAGER_APPROVED;
+    const isNowRejected = newStatus === LeaveStatus.REJECTED;
+
+    if (wasAlreadyDeducted && isNowRejected && usesBalance) {
+      await db.collection('employees').updateOne(
+        { email: leaveDoc.employee_email },
+        { $inc: { [`leave_balance.${leaveTypeKey}`]: leaveDoc.days_count } }
+      );
+      console.log(`Refunded ${leaveDoc.days_count} ${leaveTypeKey} to ${leaveDoc.employee_email} (rejected after manager approval)`);
+    }
+
+    // Events for integrations (PL-6/PL-7)
+    const actedBy = { acted_by: user.email, acted_by_name: approvalRecord.approver_name, on_behalf_of: approvalRecord.on_behalf_of_email || null };
+    if (newStatus === LeaveStatus.APPROVED) emitEvent('leave.approved', leaveEventPayload(leaveDoc, actedBy));
+    if (newStatus === LeaveStatus.REJECTED) emitEvent('leave.rejected', leaveEventPayload(leaveDoc, { ...actedBy, comments: comments || null }));
+
+    // Notifications at each step — don't block the response
+    (async () => {
       const employeeRecord = await db.collection('employees').findOne(
         { email: leaveDoc.employee_email },
         { projection: { id: 1, phone: 1 } }
       );
 
       const datesDisplay = formatDatesForDisplay(leaveDoc.dates);
+      const actorName = approvalRecord.approver_name;
+      const behalf = approvalRecord.on_behalf_of_name ? ` on behalf of ${approvalRecord.on_behalf_of_name}` : '';
 
       if (newStatus === LeaveStatus.APPROVED || newStatus === LeaveStatus.REJECTED) {
         const statusText = newStatus === LeaveStatus.APPROVED ? 'approved' : 'rejected';
@@ -1209,23 +1337,24 @@ router.put('/:leaveId/action', authenticate, getCurrentEmployee, validate(schema
           type: isApproved ? NotificationType.LEAVE_APPROVED : NotificationType.LEAVE_REJECTED,
           title: isApproved ? 'Leave Approved' : 'Leave Rejected',
           message: isApproved
-            ? `Your ${leaveDoc.leave_type} request for ${datesDisplay} has been approved by ${employee.full_name}`
-            : `Your ${leaveDoc.leave_type} request for ${datesDisplay} has been rejected by ${employee.full_name}${comments ? `. Reason: ${comments}` : ''}`,
+            ? `Your ${leaveDoc.leave_type} request for ${datesDisplay} has been approved by ${actorName}${behalf}`
+            : `Your ${leaveDoc.leave_type} request for ${datesDisplay} has been rejected by ${actorName}${behalf}${comments ? `. Reason: ${comments}` : ''}`,
           actionUrl: '/leaves',
-          metadata: { leave_id: leaveDoc.id, action_by: employee.full_name }
+          metadata: { leave_id: leaveDoc.id, action_by: actorName, level: decision.step.level }
         });
       } else if (newStatus === LeaveStatus.MANAGER_APPROVED) {
+        const next = decision.next;
         const emailHtml = generateLeaveApprovalEmail(
           leaveDoc.employee_name,
           leaveDoc.leave_type,
           datesDisplay,
           null,
-          'approved by manager (pending admin approval)'
+          `approved at level ${decision.step.level} (${decision.step.name}) — pending ${next?.name || 'final approval'}`
         );
 
         await sendEmailNotification(
           leaveDoc.employee_email,
-          'Leave Approved by Manager - Pending Admin Approval',
+          `Leave Approved by ${decision.step.name} - Pending ${next?.name || 'Final Approval'}`,
           emailHtml
         );
 
@@ -1234,47 +1363,24 @@ router.put('/:leaveId/action', authenticate, getCurrentEmployee, validate(schema
           userId: employeeRecord?.id,
           userEmail: leaveDoc.employee_email,
           type: NotificationType.LEAVE_APPROVED,
-          title: 'Leave Approved by Manager',
-          message: `Your ${leaveDoc.leave_type} request for ${datesDisplay} has been approved by ${employee.full_name}. Pending admin approval.`,
+          title: `Leave Approved by ${decision.step.name}`,
+          message: `Your ${leaveDoc.leave_type} request for ${datesDisplay} has been approved by ${actorName}${behalf}. Pending ${next?.name || 'final approval'}.`,
           actionUrl: '/leaves',
-          metadata: { leave_id: leaveDoc.id, action_by: employee.full_name }
+          metadata: { leave_id: leaveDoc.id, action_by: actorName, level: decision.step.level }
         });
 
-        const admin = await db.collection('employees').findOne(
-          { role: 'admin' },
-          { projection: { id: 1, email: 1 } }
-        );
+        // The next approver (and their delegates)
+        await approvalsService.notifyApprovers(db, leaveDoc, next, {
+          title: 'Leave Pending Your Approval',
+          message: `${leaveDoc.employee_name}'s ${leaveDoc.leave_type} for ${datesDisplay} was approved by ${actorName} (${decision.step.name}) and needs your approval`
+        });
 
-        if (admin) {
-          const adminHtml = generateLeaveApplicationEmail(
-            leaveDoc.employee_name,
-            leaveDoc.leave_type,
-            datesDisplay,
-            null,
-            leaveDoc.reason
-          );
-
-          await sendEmailNotification(
-            admin.email,
-            `Leave Approved by Manager - ${leaveDoc.employee_name}`,
-            adminHtml
-          );
-
-          // Create in-app notification for admin
-          await createNotification({
-            userId: admin.id,
-            userEmail: admin.email,
-            type: NotificationType.LEAVE_APPLIED,
-            title: 'Leave Pending Admin Approval',
-            message: `${leaveDoc.employee_name}'s ${leaveDoc.leave_type} for ${datesDisplay} was approved by manager and needs your approval`,
-            actionUrl: '/approvals',
-            metadata: { leave_id: leaveDoc.id, employee_name: leaveDoc.employee_name }
-          });
+        if (next?.approver_email) {
+          const nextHtml = generateLeaveApplicationEmail(leaveDoc.employee_name, leaveDoc.leave_type, datesDisplay, null, leaveDoc.reason);
+          await sendEmailNotification(next.approver_email, `Leave Pending Your Approval - ${leaveDoc.employee_name}`, nextHtml);
         }
       }
-    } catch (notifyError) {
-      console.error('Failed to send notification:', notifyError.message);
-    }
+    })().catch(notifyError => console.error('Failed to send notification:', notifyError.message));
 
     normalizeLeaveDates(leaveDoc);
 
@@ -1321,14 +1427,37 @@ router.put('/:leaveId', authenticate, requireRole([UserRole.ADMIN]), validate(sc
 
     const isHalfDay = editData.is_half_day !== undefined ? editData.is_half_day : originalLeave.is_half_day;
     let newDays = originalDays;
+    const editedLeaveType = editData.leave_type !== undefined ? editData.leave_type : originalLeave.leave_type;
 
-    if (editData.dates) {
-      updateDict.dates = datesToISOStrings(editData.dates);
-      newDays = calculateDaysFromDates(editData.dates, isHalfDay);
+    // Recount (sandwich rule included) whenever dates, half-day or the leave type change
+    if (editData.dates || editData.is_half_day !== undefined || (editData.leave_type !== undefined && editData.leave_type !== originalLeave.leave_type)) {
+      const owner = (await findEmployeeByEmail(db, originalLeave.employee_email)) || { email: originalLeave.employee_email };
+      const editedPolicyItem = await getLeavePolicyForType(db, editedLeaveType);
+      const newDates = editData.dates ? editData.dates : originalLeave.dates;
+      const dayInfo = await computeLeaveDays(db, { employee: owner, dates: newDates, isHalfDay, policyItem: editedPolicyItem });
+
+      if (editData.dates) {
+        const overlap = await findOverlap(db, originalLeave.employee_email, dayInfo.dates, {
+          excludeLeaveId: leaveId,
+          isHalfDay,
+          halfDayPeriod: editData.half_day_period !== undefined ? editData.half_day_period : originalLeave.half_day_period
+        });
+        if (overlap) {
+          return res.status(400).json({ detail: `The employee already has ${overlap.leave.leave_type} (${overlap.leave.status}) on ${overlap.date}` });
+        }
+      }
+      const typeRule = await validateTypeRules(db, { employee: owner, policyItem: editedPolicyItem, keys: dayInfo.dates, daysCount: dayInfo.days_count, excludeLeaveId: leaveId });
+      if (!typeRule.ok) {
+        return res.status(typeRule.status).json({ detail: typeRule.detail });
+      }
+
+      if (editData.dates) updateDict.dates = datesToISOStrings(editData.dates);
+      newDays = dayInfo.days_count;
       updateDict.days_count = newDays;
-    } else if (editData.is_half_day !== undefined) {
-      newDays = calculateDaysFromDates(originalLeave.dates, isHalfDay);
-      updateDict.days_count = newDays;
+      updateDict.applied_days = dayInfo.applied_days;
+      updateDict.sandwich_days = dayInfo.sandwich_days;
+      updateDict.sandwich_dates = dayInfo.sandwich_dates;
+      updateDict.days_breakdown = dayInfo.breakdown;
     }
 
     const newStatus = editData.status !== undefined ? editData.status : originalLeave.status;
@@ -1344,12 +1473,33 @@ router.put('/:leaveId', authenticate, requireRole([UserRole.ADMIN]), validate(sc
         timestamp: toISOString(new Date())
       };
 
-      const existingApprovals = leaveDoc.approvals.map(a => ({
+      const existingApprovals = (leaveDoc.approvals || []).map(a => ({
         ...a,
         timestamp: typeof a.timestamp === 'string' ? a.timestamp : toISOString(a.timestamp)
       }));
       existingApprovals.push(approvalRecord);
       updateDict.approvals = existingApprovals;
+
+      // Keep the approval chain in step with the admin's status change (LV-4)
+      if (newStatus !== originalLeave.status) {
+        let chain = approvalsService.chainOf(leaveDoc);
+        const stamp = { acted_by_email: user.email, acted_by_name: user.full_name, acted_at: approvalRecord.timestamp, via: 'admin_edit', comments: approvalRecord.comments };
+        if (newStatus === LeaveStatus.PENDING) {
+          const owner = (await findEmployeeByEmail(db, originalLeave.employee_email)) || { email: originalLeave.employee_email };
+          chain = await approvalsService.buildChain(db, await approvalsService.getApprovalSettings(db), owner, newDays);
+        } else if (newStatus === LeaveStatus.APPROVED) {
+          chain.filter(s => s.status === 'pending').forEach(s => Object.assign(s, stamp, { status: 'approved' }));
+        } else if (newStatus === LeaveStatus.REJECTED) {
+          const cur = approvalsService.currentStep(chain) || chain[chain.length - 1];
+          if (cur) Object.assign(cur, stamp, { status: 'rejected' });
+          chain.filter(s => s.status === 'pending').forEach(s => { s.status = 'cancelled'; });
+        } else if (newStatus === LeaveStatus.MANAGER_APPROVED) {
+          const pendingSteps = chain.filter(s => s.status === 'pending');
+          if (pendingSteps.length > 1) Object.assign(pendingSteps[0], stamp, { status: 'approved' });
+        }
+        updateDict.approval_chain = chain;
+        Object.assign(updateDict, approvalsService.currentFields(chain));
+      }
     }
 
     updateDict.updated_at = toISOString(new Date());
@@ -1358,11 +1508,11 @@ router.put('/:leaveId', authenticate, requireRole([UserRole.ADMIN]), validate(sc
     const employeeEmail = originalLeave.employee_email;
     const willBalanceBeDeducted = [LeaveStatus.MANAGER_APPROVED, LeaveStatus.APPROVED].includes(newStatus);
 
-    // Get policy items to check if leave types are unlimited
+    // Get policy items to check whether the leave types move the balance (unlimited / per-occurrence don't)
     const originalPolicyItem = await getLeavePolicyForType(db, originalLeaveType);
     const newPolicyItem = await getLeavePolicyForType(db, newLeaveType);
-    const isOriginalUnlimited = originalPolicyItem?.is_unlimited || false;
-    const isNewUnlimited = newPolicyItem?.is_unlimited || false;
+    const isOriginalUnlimited = !tracksBalance(originalPolicyItem);
+    const isNewUnlimited = !tracksBalance(newPolicyItem);
 
     if (wasBalanceDeducted && !isOriginalUnlimited) {
       const originalKey = normalizeLeaveType(originalLeaveType);
@@ -1402,9 +1552,10 @@ router.put('/:leaveId', authenticate, requireRole([UserRole.ADMIN]), validate(sc
 
         const emp = await db.collection('employees').findOne(
           { email: employeeEmail },
-          { projection: { leave_balance: 1 } }
+          { projection: { _id: 0, email: 1, leave_balance: 1 } }
         );
-        const available = emp?.leave_balance?.[newKey] || 0;
+        const available = effectiveBalance(emp, newPolicyItem, newKey);
+        if (emp && newPolicyItem) await ensureBalanceKey(db, emp, newPolicyItem, newKey);
 
         if (available < newDays) {
           return res.status(400).json({
@@ -1462,7 +1613,13 @@ router.put('/:leaveId', authenticate, requireRole([UserRole.ADMIN]), validate(sc
       { projection: { _id: 0 } }
     );
 
+    if (newStatus !== originalLeave.status) {
+      if (newStatus === LeaveStatus.APPROVED) emitEvent('leave.approved', leaveEventPayload(updatedLeave, { acted_by: user.email, via: 'admin_edit' }));
+      if (newStatus === LeaveStatus.REJECTED) emitEvent('leave.rejected', leaveEventPayload(updatedLeave, { acted_by: user.email, via: 'admin_edit' }));
+    }
+
     normalizeLeaveDates(updatedLeave);
+    withChain(updatedLeave);
 
     res.json(updatedLeave);
   } catch (error) {
@@ -1491,9 +1648,9 @@ router.delete('/:leaveId', authenticate, requireRole([UserRole.ADMIN]), async (r
 
     const wasBalanceDeducted = [LeaveStatus.MANAGER_APPROVED, LeaveStatus.APPROVED].includes(leaveDoc.status);
 
-    // Get policy to check if leave type is unlimited
+    // Get policy to check whether the leave type moves the balance (unlimited / per-occurrence don't)
     const policyItem = await getLeavePolicyForType(db, leaveDoc.leave_type);
-    const isUnlimited = policyItem?.is_unlimited || false;
+    const isUnlimited = !tracksBalance(policyItem);
 
     if (wasBalanceDeducted && !isUnlimited) {
       const leaveTypeKey = normalizeLeaveType(leaveDoc.leave_type);

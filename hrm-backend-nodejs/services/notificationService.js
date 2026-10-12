@@ -30,6 +30,11 @@ const NotificationType = {
   // Leave balance related
   LEAVE_BALANCE_ADJUSTED: 'leave_balance_adjusted',
 
+  // Attendance requests (missed punch / WFH / on-duty)
+  ATTENDANCE_REQUEST_APPLIED: 'attendance_request_applied',
+  ATTENDANCE_REQUEST_APPROVED: 'attendance_request_approved',
+  ATTENDANCE_REQUEST_REJECTED: 'attendance_request_rejected',
+
   // General
   GENERAL: 'general'
 };

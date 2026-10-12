@@ -42,6 +42,9 @@ const SalaryStructurePage = () => {
   const [selectedEmployeeData, setSelectedEmployeeData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Salary revision history (payroll module): month the structure applies from, and why
+  const [effectiveFrom, setEffectiveFrom] = useState(() => format(new Date(), 'yyyy-MM'));
+  const [revisionReason, setRevisionReason] = useState('');
   const [sending, setSending] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'));
   const [salaryTemplate, setSalaryTemplate] = useState(null);
@@ -134,7 +137,7 @@ const SalaryStructurePage = () => {
     try {
       const response = await api.get('/employees');
       setEmployees(response.data);
-    } catch (error) {
+    } catch {
       toast.error('Failed to load employees');
     }
   };
@@ -455,8 +458,13 @@ const SalaryStructurePage = () => {
 
     setSaving(true);
     try {
-      await api.post(`/salary-structure/${selectedEmployee}`, salaryStructure);
+      await api.post(`/salary-structure/${selectedEmployee}`, {
+        ...salaryStructure,
+        effective_from: effectiveFrom || undefined,
+        revision_reason: revisionReason.trim() || undefined
+      });
       toast.success('Salary structure saved successfully');
+      setRevisionReason('');
       setIsDirty(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save');
@@ -557,7 +565,7 @@ const SalaryStructurePage = () => {
       );
 
       setBulkEmployeeData(results);
-    } catch (error) {
+    } catch {
       toast.error('Failed to load employee salary data');
     } finally {
       setBulkLoading(false);
@@ -580,7 +588,7 @@ const SalaryStructurePage = () => {
       });
       setBulkSentIds(prev => new Set([...prev, empId]));
       toast.success(`Salary slip sent to ${empData.employee.full_name}`);
-    } catch (error) {
+    } catch {
       toast.error(`Failed to send to ${empData.employee.full_name}`);
     } finally {
       setBulkSendingIds(prev => {
@@ -958,7 +966,7 @@ const SalaryStructurePage = () => {
                     </div>
 
                     <div className="space-y-3">
-                      {salaryStructure.components.filter(c => c.type === 'earning').map((comp, idx) => {
+                      {salaryStructure.components.filter(c => c.type === 'earning').map((comp) => {
                         const actualIdx = salaryStructure.components.indexOf(comp);
                         const ctc = parseFloat(salaryStructure.basic_salary) || 0;
                         const calcAmount = comp.is_percentage
@@ -1053,7 +1061,7 @@ const SalaryStructurePage = () => {
                     </div>
 
                     <div className="space-y-3">
-                      {salaryStructure.components.filter(c => c.type === 'deduction').map((comp, idx) => {
+                      {salaryStructure.components.filter(c => c.type === 'deduction').map((comp) => {
                         const actualIdx = salaryStructure.components.indexOf(comp);
                         const calcAmount = comp.is_percentage
                           ? Math.round((totals.basic * (parseFloat(comp.amount) || 0)) / 100)
@@ -1149,6 +1157,18 @@ const SalaryStructurePage = () => {
                       </div>
                     </div>
                   )}
+
+                  {/* Revision details (recorded in salary history) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="effective-from" className="text-xs">Effective from (month)</Label>
+                      <Input id="effective-from" type="month" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="revision-reason" className="text-xs">Reason for change (optional)</Label>
+                      <Input id="revision-reason" value={revisionReason} maxLength={300} placeholder="e.g. Annual appraisal" onChange={(e) => setRevisionReason(e.target.value)} />
+                    </div>
+                  </div>
 
                   {/* Save Button */}
                   <Button

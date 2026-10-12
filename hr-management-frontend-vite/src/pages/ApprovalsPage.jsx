@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, Calendar, User } from 'lucide-react';
+import { CheckCircle, XCircle, Calendar, User, Download, UserCheck, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +9,9 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { format } from 'date-fns';
+import { exportCsv } from '@/lib/exportCsv';
+import ApprovalChain from '@/modules/leave/components/ApprovalChain';
+import { fmtKey, toDateKey } from '@/modules/leave/lib';
 
 const ApprovalsPage = () => {
   const [leaves, setLeaves] = useState([]);
@@ -63,18 +66,18 @@ const ApprovalsPage = () => {
 
   const getStatusBadge = (status) => {
     const statusMap = {
-      pending: 'pending',
-      manager_approved: 'pending',
-      approved: 'approved',
-      rejected: 'rejected',
+      pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+      manager_approved: 'bg-amber-100 text-amber-800 border-amber-200',
+      approved: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      rejected: 'bg-red-100 text-red-800 border-red-200',
     };
-    return statusMap[status] || 'pending';
+    return statusMap[status] || statusMap.pending;
   };
 
   const getStatusText = (status) => {
     const textMap = {
       pending: 'Pending',
-      manager_approved: 'Manager Approved',
+      manager_approved: 'Partly approved',
       approved: 'Approved',
       rejected: 'Rejected',
     };
@@ -125,13 +128,34 @@ const ApprovalsPage = () => {
   }
 
   return (
-    <div className="p-6 md:p-10 space-y-6">
+    <div className="p-3 sm:p-6 md:p-10 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-4xl font-bold text-slate-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-          Pending Approvals
-        </h1>
-        <p className="text-lg text-slate-600">Review and approve leave requests</p>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-slate-900 mb-1 sm:mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+            Pending Approvals
+          </h1>
+          <p className="text-sm sm:text-lg text-slate-600">Review and approve leave requests</p>
+        </div>
+        <Button
+          variant="outline"
+          className="gap-2 w-full sm:w-auto"
+          disabled={!leaves.length}
+          onClick={() => exportCsv('pending-leave-approvals', leaves, [
+            { key: 'employee_name', label: 'Employee' },
+            { key: 'employee_email', label: 'Email' },
+            { key: 'leave_type', label: 'Leave type' },
+            { label: 'Dates', value: (l) => (l.dates || []).map(toDateKey).join(' ') },
+            { key: 'days_count', label: 'Days' },
+            { key: 'sandwich_days', label: 'Sandwich days' },
+            { key: 'status', label: 'Status' },
+            { key: 'current_step_name', label: 'Waiting at' },
+            { label: 'On behalf of', value: (l) => l.on_behalf_of?.name || '' },
+            { key: 'reason', label: 'Reason' },
+          ])}
+        >
+          <Download className="w-4 h-4" /> Export CSV
+        </Button>
       </div>
 
       {/* Approvals List */}
@@ -148,9 +172,9 @@ const ApprovalsPage = () => {
                 <div
                   key={leave.id}
                   data-testid={`approval-item-${leave.id}`}
-                  className="p-6 bg-slate-50 rounded-xl border border-slate-100 hover:border-slate-200 transition-colors"
+                  className="p-3 sm:p-6 bg-slate-50 rounded-xl border border-slate-100 hover:border-slate-200 transition-colors"
                 >
-                  <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-start justify-between gap-2 mb-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center">
@@ -162,8 +186,24 @@ const ApprovalsPage = () => {
                         </div>
                       </div>
                     </div>
-                    <Badge className={getStatusBadge(leave.status)}>{getStatusText(leave.status)}</Badge>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge className={`${getStatusBadge(leave.status)} border`}>{getStatusText(leave.status)}</Badge>
+                      {leave.on_behalf_of && (
+                        <Badge variant="outline" className="text-[10px] gap-1 border-sky-200 text-sky-700 bg-sky-50">
+                          <UserCheck className="w-3 h-3" /> For {leave.on_behalf_of.name}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
+
+                  {Array.isArray(leave.approval_chain) && leave.approval_chain.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                        <Layers className="w-3.5 h-3.5" /> Approval levels
+                      </p>
+                      <ApprovalChain chain={leave.approval_chain} />
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div className="bg-white p-4 rounded-lg border border-slate-200">
@@ -188,6 +228,11 @@ const ApprovalsPage = () => {
                           <span> • Half Day ({leave.half_day_period})</span>
                         )}
                       </p>
+                      {leave.sandwich_days > 0 && (
+                        <p className="text-xs text-amber-700 mt-1">
+                          Includes {leave.sandwich_days} sandwiched day{leave.sandwich_days > 1 ? 's' : ''}: {(leave.sandwich_dates || []).map((d) => fmtKey(d, 'EEE dd MMM')).join(', ')}
+                        </p>
+                      )}
                       {/* Show individual dates if non-consecutive */}
                       {leave.dates && leave.dates.length > 1 && !areDatesConsecutive(leave.dates) && (
                         <div className="mt-2 flex flex-wrap gap-1">
@@ -223,9 +268,11 @@ const ApprovalsPage = () => {
                           <div key={idx} className="text-sm">
                             <span className="font-medium text-slate-700">{approval.approver_name}</span>
                             <span className="text-slate-500"> ({approval.approver_role}) </span>
-                            <span className={approval.action === 'approve' ? 'text-emerald-600' : 'text-red-600'}>
-                              {approval.action === 'approve' ? 'approved' : 'rejected'}
+                            <span className={approval.action === 'approve' ? 'text-emerald-600' : approval.action === 'reject' ? 'text-red-600' : 'text-slate-600'}>
+                              {approval.action === 'approve' ? 'approved' : approval.action === 'reject' ? 'rejected' : approval.action}
                             </span>
+                            {approval.step_name && <span className="text-slate-500"> at {approval.step_name}</span>}
+                            {approval.on_behalf_of_name && <span className="text-slate-500"> on behalf of {approval.on_behalf_of_name}</span>}
                             {approval.comments && (
                               <p className="text-slate-600 mt-1">Comment: {approval.comments}</p>
                             )}
@@ -235,6 +282,11 @@ const ApprovalsPage = () => {
                     </div>
                   )}
 
+                  {leave.can_act === false ? (
+                    <p className="text-sm text-slate-500 bg-white border border-slate-200 rounded-lg p-3">
+                      Waiting for {leave.current_step_name || 'another approver'}.
+                    </p>
+                  ) : (
                   <div className="flex gap-3">
                     <Button
                       onClick={() => openActionDialog(leave, 'approve')}
@@ -254,6 +306,7 @@ const ApprovalsPage = () => {
                       Reject
                     </Button>
                   </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -283,6 +336,11 @@ const ApprovalsPage = () => {
           <div className="space-y-4 mt-4">
             {actionDialog.leave && (
               <div className="p-4 bg-slate-50 rounded-lg space-y-3">
+                {actionDialog.leave.on_behalf_of && (
+                  <p className="text-xs text-sky-700 bg-sky-50 border border-sky-100 rounded p-2">
+                    You are acting on behalf of {actionDialog.leave.on_behalf_of.name} (delegation).
+                  </p>
+                )}
                 <div>
                   <p className="font-medium text-slate-900">{actionDialog.leave.employee_name}</p>
                   <p className="text-sm text-slate-600">

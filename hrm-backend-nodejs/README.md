@@ -1,6 +1,28 @@
-# HRMS Backend - Express.js + MongoDB
+# HRMS Backend - Express.js + PostgreSQL
 
-A comprehensive Human Resource Management System backend built with Express.js and MongoDB.
+A comprehensive Human Resource Management System backend built with Express.js and PostgreSQL.
+
+## Database
+
+Data is stored in PostgreSQL through a small document store in `db/pgdoc/`:
+
+- `DATABASE_URL` selects the server and database, `DB_NAME` the schema (created automatically).
+- Each collection is a table `(seq bigserial, _id text primary key, doc jsonb)` with a GIN
+  (`jsonb_path_ops`) index; tables are created on first use.
+- Route code uses a MongoDB-style collection API (`find`, `updateOne`, `aggregate`, …).
+  Filters are translated to indexed SQL/JSONPath; anything not translated exactly is
+  re-checked in JS, so results always match the query semantics.
+- Unique indexes are real PostgreSQL unique indexes (violations surface as `code: 11000`);
+  TTL indexes are honoured by a sweeper that runs every minute.
+
+```bash
+# Tests
+npm run test:pgdoc   # store unit/differential tests   (needs DATABASE_URL)
+npm run test:api     # all API suites, each in a throwaway schema (--pg <url> to override)
+
+# Moving existing data from MongoDB
+npm run migrate:mongo -- --from mongodb://127.0.0.1:27017 --from-db hrms --to "$DATABASE_URL" --to-db hrms
+```
 
 ## Features
 
@@ -63,7 +85,7 @@ hrms-backend/
 ├── server.js             # Main entry point
 ├── .env.example          # Environment variables template
 ├── config/
-│   ├── database.js       # MongoDB connection
+│   ├── database.js       # PostgreSQL connection (db/pgdoc)
 │   └── config.js         # App configuration
 ├── middleware/
 │   ├── auth.js           # JWT authentication
@@ -111,8 +133,9 @@ hrms-backend/
 |----------|-------------|---------|
 | HOST | Server host | 0.0.0.0 |
 | PORT | Server port | 8000 |
-| MONGO_URL | MongoDB connection string | mongodb://localhost:27017 |
-| DB_NAME | Database name | hrms_production |
+| DATABASE_URL | PostgreSQL connection string, e.g. `postgres://user:pass@localhost:5432/hrms` | (required) |
+| DB_NAME | Schema name inside that database | hrms_production |
+| PG_POOL_MAX | Max PostgreSQL connections | 10 |
 | JWT_SECRET_KEY | JWT signing secret | (required) |
 | CORS_ORIGINS | Allowed CORS origins | * |
 | MAILJET_API_KEY | Mailjet API key | (optional) |

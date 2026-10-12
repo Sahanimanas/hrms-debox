@@ -1,6 +1,6 @@
 /**
  * HRMS Backend Server
- * Express.js + MongoDB
+ * Express.js + PostgreSQL (document store in db/pgdoc)
  */
 
 require('dotenv').config();
@@ -30,6 +30,12 @@ const compOffRoutes = require('./routes/compoffRoutes');
 const leaveCreditRoutes = require('./routes/leaveCredit');
 const userNotificationRoutes = require('./routes/userNotifications');
 const whatsappRoutes = require('./routes/whatsapp');
+const timeTrackingRoutes = require('./routes/timeTracking');
+const timeDeviceRoutes = require('./routes/timeDevices');
+const timesheetRoutes = require('./routes/timesheets');
+const { mountModules } = require('./routes/modules');
+const { auditLog } = require('./middleware/auditLog');
+const { startCron } = require('./cron');
 const baileysService = require('./services/baileysService');
 
 
@@ -44,7 +50,7 @@ const app = express();
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Device-Key"]
 }));
 
 app.use(express.json({ limit: '50mb' }));
@@ -63,6 +69,15 @@ function logSetupStatus() {
   const color = status ? '\x1b[36m' : '\x1b[31m'; // cyan or red
   console.log(`${color}[HRMS SETUP] setup_completed = ${status}\x1b[0m`);
 }
+
+// Locally stored uploads (used when S3 is not configured)
+// Private files (resumes, tax proofs, employee documents) live under
+// uploads/private and are only available through authenticated endpoints.
+app.use('/uploads/private', (req, res) => res.status(404).json({ detail: 'Not found' }));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), { fallthrough: false, dotfiles: 'deny' }));
+
+// Audit trail for mutating API requests
+app.use('/api', auditLog);
 
 // ============= API ROUTES =============
 
@@ -132,6 +147,12 @@ app.use('/api/comp-off', compOffRoutes);
 app.use('/api/admin/leave-credit', leaveCreditRoutes);
 app.use('/api/notifications', userNotificationRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/time/devices', timeDeviceRoutes); // before /api/time: device punches use a device key, not a user token
+app.use('/api/time', timeTrackingRoutes);
+app.use('/api/timesheets', timesheetRoutes);
+
+// Feature modules at /api/v2/<module>
+mountModules(app);
 
 
 
@@ -158,22 +179,23 @@ const HOST = process.env.HOST || '0.0.0.0';
 async function startServer() {
   logSetupStatus();
 
-  // Connect to database if MONGO_URL is set
-  const mongoUrl = process.env.MONGO_URL;
+  // Connect to PostgreSQL if DATABASE_URL is set (DB_NAME is the schema)
+  const databaseUrl = process.env.DATABASE_URL;
   const dbName = process.env.DB_NAME || 'hrms_production';
 
-  console.log(`[DATABASE] MONGO_URL: ${mongoUrl ? 'Set' : 'Not set'}`);
-  console.log(`[DATABASE] DB_NAME: ${dbName}`);
+  console.log(`[DATABASE] DATABASE_URL: ${databaseUrl ? 'Set' : 'Not set'}`);
+  console.log(`[DATABASE] DB_NAME (schema): ${dbName}`);
 
-  if (mongoUrl) {
+  if (databaseUrl) {
     try {
-      await connectDB(mongoUrl, dbName);
-      console.log('\x1b[32m[DATABASE] Connected to MongoDB\x1b[0m');
+      const db = await connectDB(databaseUrl, dbName);
+      console.log('\x1b[32m[DATABASE] Connected to PostgreSQL\x1b[0m');
+      startCron(db);
     } catch (error) {
-      console.error('\x1b[31m[DATABASE] Failed to connect to MongoDB:\x1b[0m', error.message);
+      console.error('\x1b[31m[DATABASE] Failed to connect to PostgreSQL:\x1b[0m', error.message);
     }
   } else {
-    console.log('\x1b[33m[DATABASE] Skipping connection - MONGO_URL not set in .env\x1b[0m');
+    console.log('\x1b[33m[DATABASE] Skipping connection - DATABASE_URL not set in .env\x1b[0m');
   }
 
   app.listen(PORT, HOST, () => {

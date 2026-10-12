@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { format, parseISO, differenceInDays } from 'date-fns';
+import PersonalDetailsCard from '@/modules/lifecycle/components/PersonalDetailsCard';
+import JobHistoryTimeline from '@/modules/lifecycle/components/JobHistoryTimeline';
 
 const ProfilePage = () => {
   const [employee, setEmployee] = useState(null);
@@ -809,6 +811,24 @@ const ProfilePage = () => {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      {/* Lifecycle: personal details (change requests) and job history */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        <div className="lg:col-span-2">
+          <PersonalDetailsCard />
+        </div>
+        <Card className="border-slate-100 shadow-sm">
+          <CardContent className="p-4 sm:p-6">
+            {employee.employment_status && employee.employment_status !== 'active' && (
+              <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs sm:text-sm text-amber-900">
+                {employee.employment_status === 'probation' && employee.probation_end_date && <>On probation until <span className="font-semibold">{format(new Date(employee.probation_end_date), 'dd MMM yyyy')}</span></>}
+                {employee.employment_status === 'notice' && employee.exit_date && <>Serving notice — last working day <span className="font-semibold">{format(new Date(employee.exit_date), 'dd MMM yyyy')}</span></>}
+              </div>
+            )}
+            <JobHistoryTimeline compact />
+          </CardContent>
+        </Card>
       </div>
 
       {/* Comp-Off Details Dialog */}

@@ -14,7 +14,7 @@ let dbInstance = null;
 
 /**
  * Setup all cron jobs
- * @param {Db} db - MongoDB database instance
+ * @param {Db} db - database instance (PostgreSQL document store)
  */
 function setupCronJobs(db) {
   dbInstance = db;
@@ -55,7 +55,7 @@ function setupCronJobs(db) {
 
 /**
  * Manually trigger monthly credit (for testing)
- * @param {Db} db - MongoDB database instance
+ * @param {Db} db - database instance (PostgreSQL document store)
  * @param {Date} forDate - Optional date to simulate credit for
  */
 async function triggerMonthlyCredit(db, forDate = new Date()) {

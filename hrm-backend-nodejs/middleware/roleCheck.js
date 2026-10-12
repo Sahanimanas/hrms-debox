@@ -60,9 +60,28 @@ const validate = (schema) => {
   };
 };
 
+/**
+ * Fine-grained permissions (PL-5). requirePermission('payroll.view', 'payroll.run')
+ * passes when the user holds ANY of the listed permissions; admins always pass.
+ * hasPermission(user, 'audit.view') -> Promise<boolean>.
+ * Loaded lazily so this file keeps no hard dependency on the platform module.
+ */
+const requirePermission = (...perms) => {
+  let middleware = null;
+  return (req, res, next) => {
+    if (!middleware) middleware = require('../services/platform/permissions').requirePermission(...perms);
+    return middleware(req, res, next);
+  };
+};
+
+const hasPermission = (user, permission) =>
+  require('../services/platform/permissions').hasPermission(user, permission);
+
 module.exports = {
   requireRole,
   requireAdmin,
   requireAdminOrManager,
-  validate
+  validate,
+  requirePermission,
+  hasPermission
 };

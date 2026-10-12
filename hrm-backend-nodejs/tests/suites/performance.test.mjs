@@ -1,0 +1,692 @@
+// Phase 6 — Performance & growth (PF-1 … PF-5)
+import { run, section, check, get, post, put, patch, del, upload, bootstrap, createUser, withDb } from '../lib/harness.mjs';
+
+const P = '/v2/performance';
+const TZ = process.env.APP_TIMEZONE || 'Asia/Kolkata';
+const today = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());
+const addDays = (dateStr, n) => new Date(Date.parse(`${dateStr}T12:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF');
+
+await run(async () => {
+  const admin = await bootstrap();
+  const mgr = await createUser(admin, { role: 'manager', name: 'Maya Manager', department: 'Engineering', designation: 'Engineering Manager' });
+  const emp = await createUser(admin, { role: 'employee', name: 'Eli Employee', department: 'Engineering', manager_email: mgr.email });
+  const emp2 = await createUser(admin, { role: 'employee', name: 'Dev Deptmate', department: 'Engineering' }); // dept-managed by mgr
+  const mgr2 = await createUser(admin, { role: 'manager', name: 'Sam Sales', department: 'Sales', designation: 'Sales Manager' });
+  const emp3 = await createUser(admin, { role: 'employee', name: 'Rhea Rep', department: 'Sales', designation: 'Sales Rep', manager_email: mgr2.email });
+  const peer = await createUser(admin, { role: 'employee', name: 'Pat Peer', department: 'Sales', designation: 'Sales Rep', manager_email: mgr2.email });
+
+  let r;
+
+  // ====================================================================
+  section('PF-1 Review cycles and goals');
+  r = await post(`${P}/cycles`, emp.token, { name: 'X', period_start: today, period_end: addDays(today, 10) });
+  check('employee cannot create a review cycle', r.s === 403, r);
+  r = await post(`${P}/cycles`, admin, { name: 'Bad', period_start: '2026/01/01', period_end: today });
+  check('invalid date format rejected (422)', r.s === 422, r);
+  r = await post(`${P}/cycles`, admin, { name: 'Bad', period_start: today, period_end: addDays(today, -5) });
+  check('period end before start rejected', r.s === 400, r);
+  r = await post(`${P}/cycles`, admin, { name: 'Bad', period_start: today, period_end: addDays(today, 30), goal_deadline: addDays(today, 60) });
+  check('goal deadline outside the period rejected', r.s === 400, r);
+  r = await post(`${P}/cycles`, admin, { name: 'FY H2', period_start: addDays(today, -10), period_end: addDays(today, 180), goal_deadline: addDays(today, 30), status: 'active' });
+  check('admin creates active cycle', r.s === 201 && r.d.status === 'active', r);
+  const cycleId = r.d?.id;
+  r = await post(`${P}/cycles`, admin, { name: 'Next year (draft)', period_start: addDays(today, 200), period_end: addDays(today, 400) });
+  const draftCycleId = r.d?.id;
+  r = await get(`${P}/cycles`, emp.token);
+  check('employees do not see draft cycles', r.s === 200 && r.d.some(c => c.id === cycleId) && !r.d.some(c => c.id === draftCycleId), r.d);
+  r = await post(`${P}/goals`, emp.token, { cycle_id: draftCycleId, title: 'Too early', weightage: 10 });
+  check('goals cannot be added to a draft cycle', r.s === 400, r);
+  r = await del(`${P}/cycles/${draftCycleId}`, admin);
+  check('admin deletes an empty draft cycle', r.s === 200, r);
+
+  // Company + manager goals for cascading
+  r = await post(`${P}/goals`, emp.token, { cycle_id: cycleId, is_company_goal: true, title: 'Company goal attempt' });
+  check('employee cannot create a company goal', r.s === 403, r);
+  r = await post(`${P}/goals`, admin, { cycle_id: cycleId, is_company_goal: true, title: 'Grow ARR 30%', type: 'OKR' });
+  check('admin creates a company goal', r.s === 201 && r.d.is_company_goal && r.d.approval_status === 'approved', r);
+  const companyGoalId = r.d?.id;
+  r = await post(`${P}/goals`, mgr.token, { cycle_id: cycleId, title: 'Ship platform v2', weightage: 100, parent_goal_id: companyGoalId });
+  const mgrGoalId = r.d?.id;
+  check('manager creates own goal aligned to company goal', r.s === 201 && r.d.parent_goal_title === 'Grow ARR 30%', r);
+  r = await post(`${P}/goals`, mgr2.token, { cycle_id: cycleId, title: 'Close 10 deals', weightage: 100 });
+  const mgr2GoalId = r.d?.id;
+
+  r = await post(`${P}/goals`, emp.token, {
+    cycle_id: cycleId, title: 'Reduce p95 latency', type: 'OKR', weightage: 60, parent_goal_id: mgrGoalId,
+    key_results: [
+      { title: 'p95 latency (ms)', start_value: 800, target_value: 400, current_value: 700, unit: 'ms' },
+      { title: 'Endpoints migrated', start_value: 0, target_value: 10, current_value: 5 }
+    ]
+  });
+  check('employee creates goal with key results; progress computed (25%+50%)/2', r.s === 201 && r.d.progress === 37.5 && r.d.approval_status === 'draft', r.d);
+  const g1 = r.d?.id;
+  const kr1 = r.d?.key_results?.[0]?.id;
+  r = await post(`${P}/goals`, emp.token, { cycle_id: cycleId, title: 'Aligned to other manager', weightage: 30, parent_goal_id: mgr2GoalId });
+  check("cannot align to someone else's manager's goal", r.s === 400, r);
+  r = await post(`${P}/goals`, emp.token, { cycle_id: cycleId, title: 'x', weightage: 30, type: 'OKX' });
+  check('invalid goal type rejected (422)', r.s === 422, r);
+  r = await post(`${P}/goals`, emp.token, { cycle_id: cycleId, title: 'Mentor two juniors', type: 'KRA', weightage: 30, parent_goal_id: companyGoalId });
+  check('employee creates second goal aligned to company goal', r.s === 201, r);
+  const g2 = r.d?.id;
+  r = await get(`${P}/goals/parent-options?cycle_id=${cycleId}`, emp.token);
+  check('parent options = company goals + my manager\'s goals', r.s === 200 && r.d.some(g => g.id === companyGoalId) && r.d.some(g => g.id === mgrGoalId) && !r.d.some(g => g.id === mgr2GoalId), r.d);
+
+  r = await post(`${P}/goals/submit`, emp.token, { cycle_id: cycleId });
+  check('submit blocked when weightage totals 90%', r.s === 400 && /100%/.test(r.d.detail), r);
+  r = await put(`${P}/goals/${g2}`, emp.token, { weightage: 40 });
+  check('employee edits draft goal weightage', r.s === 200 && r.d.weightage === 40, r);
+  r = await post(`${P}/goals/submit`, emp.token, { cycle_id: cycleId });
+  check('submit succeeds at 100%', r.s === 200 && r.d.submitted === 2 && r.d.total_weightage === 100, r);
+  r = await put(`${P}/goals/${g1}`, emp.token, { title: 'Changed after submit' });
+  check('employee cannot edit a submitted goal', r.s === 400, r);
+  r = await get(`${P}/goals/${g1}`, mgr2.token);
+  check("another team's manager cannot view the goal", r.s === 403, r);
+  r = await get(`${P}/goals?scope=team&employee_email=${emp.email}`, mgr2.token);
+  check("another team's manager cannot list the employee's goals", r.s === 403, r);
+  r = await get(`${P}/goals?scope=all`, emp.token);
+  check('employee cannot list all goals', r.s === 403, r);
+  r = await get(`${P}/pending-actions`, mgr.token);
+  check('dashboard: manager sees "goals awaiting your approval"', r.s === 200 && r.d.items.some(i => i.key === 'goals-approval' && i.count === 2), r.d);
+  r = await post(`${P}/goals/${g1}/review`, mgr2.token, { action: 'approve' });
+  check("other team's manager cannot approve", r.s === 403, r);
+  r = await post(`${P}/goals/${g1}/review`, mgr.token, { action: 'send_back', comments: '' });
+  check('send back requires a comment', r.s === 400, r);
+  r = await post(`${P}/goals/${g1}/review`, mgr.token, { action: 'send_back', comments: 'Make the latency target 350ms' });
+  check('manager sends a goal back', r.s === 200 && r.d.approval_status === 'sent_back' && r.d.approval_comments.includes('350ms'), r.d);
+  r = await get(`${P}/pending-actions`, emp.token);
+  check('dashboard: employee sees "sent back" item', r.d?.items?.some(i => i.key.startsWith('goals-sent-back')), r.d);
+  r = await put(`${P}/goals/${g1}`, emp.token, { key_results: [
+    { id: kr1, title: 'p95 latency (ms)', start_value: 800, target_value: 350, unit: 'ms' },
+    { title: 'Endpoints migrated', start_value: 0, target_value: 10, current_value: 5 }
+  ] });
+  check('employee edits sent-back goal; existing KR keeps its id and current value', r.s === 200 && r.d.key_results[0].id === kr1 && r.d.key_results[0].current_value === 700, r.d);
+  r = await post(`${P}/goals/submit`, emp.token, { cycle_id: cycleId });
+  check('resubmit after changes', r.s === 200 && r.d.submitted === 1, r);
+  r = await post(`${P}/goals/review`, mgr.token, { cycle_id: cycleId, employee_email: emp.email, action: 'approve', comments: 'Looks good' });
+  check('manager bulk-approves both submitted goals (resubmitted + untouched)', r.s === 200 && r.d.reviewed === 2, r);
+  r = await get(`${P}/goals?scope=my&cycle_id=${cycleId}`, emp.token);
+  check('all employee goals approved', r.d?.length === 2 && r.d.every(g => g.approval_status === 'approved'), r.d);
+
+  r = await post(`${P}/goals/${g1}/check-ins`, emp.token, { key_results: [{ id: kr1, current_value: 350 }], note: 'Hit the target' });
+  check('check-in updates KR and recomputes progress', r.s === 201 && r.d.key_results[0].progress === 100 && r.d.progress === 75 && r.d.check_ins.length === 1, r.d);
+  r = await post(`${P}/goals/${g1}/check-ins`, emp.token, { key_results: [{ id: 'nope', current_value: 1 }] });
+  check('check-in with unknown key result rejected', r.s === 400, r);
+  r = await post(`${P}/goals/${g2}/check-ins`, emp.token, { progress: 100 });
+  check('manual-progress goal check-in reaching 100% becomes done', r.s === 201 && r.d.progress === 100 && r.d.status === 'done', r.d);
+  r = await post(`${P}/goals/${g1}/check-ins`, emp2.token, { note: 'not mine' });
+  check("colleague cannot check in on someone else's goal", r.s === 403, r);
+  r = await post(`${P}/goals/${g1}/check-ins`, mgr.token, { status: 'at_risk', note: 'Watch the migration' });
+  check('manager check-in sets status and keeps history', r.s === 201 && r.d.status === 'at_risk' && r.d.check_ins.length === 2, r.d);
+
+  r = await post(`${P}/goals`, emp.token, { cycle_id: cycleId, employee_email: emp2.email, title: 'Assign to peer', weightage: 50 });
+  check('employee cannot assign goals to a colleague', r.s === 403, r);
+  r = await post(`${P}/goals`, mgr.token, { cycle_id: cycleId, employee_email: emp2.email, title: 'Own the on-call rota', weightage: 50, parent_goal_id: mgrGoalId });
+  check('manager assigns goal to department report (auto-approved)', r.s === 201 && r.d.approval_status === 'approved' && r.d.assigned_by?.email === mgr.email, r.d);
+  r = await post(`${P}/goals`, mgr.token, { cycle_id: cycleId, employee_email: emp3.email, title: 'Not my team', weightage: 50 });
+  check('manager cannot assign goals outside the team', r.s === 403, r);
+  r = await post(`${P}/goals`, emp2.token, { cycle_id: cycleId, title: 'Draft goal', weightage: 50 });
+  const emp2Draft = r.d?.id;
+  r = await post(`${P}/goals/${emp2Draft}/check-ins`, emp2.token, { progress: 10 });
+  check('check-in on a draft goal rejected', r.s === 400, r);
+  r = await get(`${P}/goals/${mgrGoalId}`, mgr.token);
+  check('parent goal lists aligned goals', r.s === 200 && r.d.aligned_goal_count === 2 && r.d.aligned_goals.length === 2, r.d);
+  r = await get(`${P}/goals?scope=team&cycle_id=${cycleId}`, mgr.token);
+  check('manager team view includes direct and department reports', r.s === 200 && r.d.some(g => g.employee_email === emp.email) && r.d.some(g => g.employee_email === emp2.email) && !r.d.some(g => g.employee_email === emp3.email), r.d?.map(g => g.employee_email));
+  r = await get('/notifications', mgr.token);
+  check('manager notified of goal submission', JSON.stringify(r.d).includes('goals_submitted'));
+
+  r = await post(`${P}/cycles`, admin, { name: 'Past deadline', period_start: addDays(today, -60), period_end: addDays(today, 60), goal_deadline: addDays(today, -1), status: 'active' });
+  const lateCycle = r.d?.id;
+  r = await post(`${P}/goals`, emp.token, { cycle_id: lateCycle, title: 'Late goal', weightage: 100 });
+  check('employee cannot add goals after the goal-setting deadline', r.s === 400 && /deadline/.test(r.d.detail), r);
+  r = await post(`${P}/goals`, mgr.token, { cycle_id: lateCycle, employee_email: emp.email, title: 'Manager can still assign', weightage: 100 });
+  check('manager can still assign after the deadline', r.s === 201, r);
+  r = await put(`${P}/cycles/${lateCycle}`, admin, { status: 'draft' });
+  check('cycle with goals cannot go back to draft', r.s === 400, r);
+  r = await put(`${P}/cycles/${lateCycle}`, admin, { status: 'closed' });
+  check('admin closes a cycle', r.s === 200 && r.d.status === 'closed', r);
+  const lateGoal = (await get(`${P}/goals?scope=my&cycle_id=${lateCycle}`, emp.token)).d?.[0]?.id;
+  r = await post(`${P}/goals/${lateGoal}/check-ins`, emp.token, { note: 'closed?' });
+  check('no check-ins on a closed cycle', r.s === 400, r);
+  r = await put(`${P}/goals/${lateGoal}`, mgr.token, { title: 'Edit closed' });
+  check('no edits on a closed cycle', r.s === 400, r);
+
+  // ====================================================================
+  section('PF-2 Appraisal cycles');
+  r = await put(`${P}/appraisal-configs/${cycleId}`, emp.token, { competency_weight: 10 });
+  check('employee cannot configure appraisals', r.s === 403, r);
+  r = await put(`${P}/appraisal-configs/${cycleId}`, admin, { rating_scale: [{ value: 1, label: 'a' }, { value: 2, label: 'b' }] });
+  check('rating scale must have 5 levels (422)', r.s === 422, r);
+  r = await put(`${P}/appraisal-configs/${cycleId}`, admin, {
+    competencies: [{ name: 'Communication' }, { name: 'Ownership' }],
+    competency_weight: 20, peer_feedback_enabled: true, max_peers: 2, self_review_due: addDays(today, 14)
+  });
+  check('admin configures competencies, weights and 360°', r.s === 200 && r.d.competencies.length === 2 && r.d.phase === 'setup' && r.d.next_phase === 'self_review', r.d);
+  const [cComm, cOwn] = (r.d?.competencies || []).map(c => c.id);
+  check('minimum peer responses defaults to 2', r.d?.min_peer_responses === 2, r.d);
+  r = await put(`${P}/appraisal-configs/${cycleId}`, admin, { min_peer_responses: 0 });
+  check('minimum peer responses must be at least 1 (422)', r.s === 422, r);
+  r = await post(`${P}/appraisal-configs/${cycleId}/advance`, emp.token, {});
+  check('employee cannot advance phases', r.s === 403, r);
+  r = await post(`${P}/appraisal-configs/${cycleId}/advance`, admin, {});
+  check('start self review creates appraisals for all non-admin employees', r.s === 200 && r.d.to === 'self_review' && r.d.appraisals_created === 6, r.d);
+  r = await put(`${P}/appraisal-configs/${cycleId}`, admin, { competency_weight: 50 });
+  check('weights locked after the appraisal starts', r.s === 400, r);
+  r = await put(`${P}/appraisal-configs/${cycleId}`, admin, { rating_scale: [1, 2, 3, 4, 5].map(v => ({ value: v, label: `L${v}` })) });
+  check('labels can still be edited', r.s === 200 && r.d.rating_scale[0].label === 'L1', r);
+  await put(`${P}/appraisal-configs/${cycleId}`, admin, { rating_scale: ['Unsatisfactory', 'Needs improvement', 'Meets expectations', 'Exceeds expectations', 'Outstanding'].map((label, i) => ({ value: i + 1, label })) });
+
+  r = await get(`${P}/appraisals?scope=my&cycle_id=${cycleId}`, emp.token);
+  check('employee sees own appraisal in self review', r.s === 200 && r.d.length === 1 && r.d[0].self_status === 'pending' && r.d[0].phase === 'self_review', r.d);
+  const apId = r.d?.[0]?.id;
+  r = await get(`${P}/pending-actions`, emp.token);
+  check('dashboard: "Self review due"', r.d?.items?.some(i => i.key === `self-review-${cycleId}`), r.d);
+  r = await get(`${P}/appraisals?scope=team&cycle_id=${cycleId}`, mgr.token);
+  const emp2Ap = r.d?.find(a => a.employee_email === emp2.email)?.id;
+  check('manager team list has direct + department reports only', r.s === 200 && r.d.some(a => a.employee_email === emp.email) && emp2Ap && !r.d.some(a => a.employee_email === emp3.email), r.d?.map(a => a.employee_email));
+  r = await get(`${P}/appraisals/${apId}`, mgr2.token);
+  check("other team's manager cannot open the appraisal", r.s === 403, r);
+
+  r = await put(`${P}/appraisals/${apId}/self-review`, emp.token, { goal_ratings: [{ goal_id: g1, rating: 4, comment: 'Shipped' }], overall_comment: 'Good half' });
+  check('self review draft saved', r.s === 200 && r.d.self_status === 'draft', r.d);
+  r = await get(`${P}/appraisals/${apId}`, mgr.token);
+  check('manager cannot see an unsubmitted self review', r.s === 200 && r.d.self_review === null, r.d);
+  r = await put(`${P}/appraisals/${apId}/self-review`, emp.token, { goal_ratings: [{ goal_id: g1, rating: 4 }], submit: true });
+  check('incomplete self review cannot be submitted', r.s === 400, r);
+  r = await put(`${P}/appraisals/${apId}/self-review`, emp.token, { goal_ratings: [{ goal_id: mgrGoalId, rating: 4 }] });
+  check("rating a goal that isn't the employee's is rejected", r.s === 400, r);
+  r = await put(`${P}/appraisals/${apId}/self-review`, emp.token, { goal_ratings: [{ goal_id: g1, rating: 7 }] });
+  check('rating outside 1–5 rejected (422)', r.s === 422, r);
+  r = await put(`${P}/appraisals/${apId}/self-review`, mgr.token, { goal_ratings: [] });
+  check('manager cannot write the self review', r.s === 403, r);
+  r = await put(`${P}/appraisals/${apId}/manager-review`, mgr.token, { goal_ratings: [] });
+  check('manager review blocked during self review phase', r.s === 400, r);
+
+  r = await post(`${P}/appraisals/${apId}/peers`, emp.token, { peer_emails: [emp.email] });
+  check('cannot nominate yourself as a peer', r.s === 400, r);
+  r = await post(`${P}/appraisals/${apId}/peers`, emp.token, { peer_emails: [peer.email, emp3.email] });
+  check('employee nominates two peers (pending approval)', r.s === 201 && r.d.length === 2 && r.d.every(p => p.status === 'nominated'), r.d);
+  const nomPeer = r.d?.find(p => p.peer_email === peer.email)?.id;
+  const nomEmp3 = r.d?.find(p => p.peer_email === emp3.email)?.id;
+  r = await post(`${P}/appraisals/${apId}/peers`, emp.token, { peer_emails: [emp2.email] });
+  check('cannot exceed max peers', r.s === 400, r);
+  r = await post(`${P}/peer-feedback/${nomPeer}/decision`, emp2.token, { action: 'approve' });
+  check('colleague cannot approve nominations', r.s === 403, r);
+  r = await get(`${P}/pending-actions`, mgr.token);
+  check('dashboard: manager sees peer nominations to approve', r.d?.items?.some(i => i.key === `peer-noms-${cycleId}` && i.count === 2), r.d);
+  r = await post(`${P}/peer-feedback/${nomPeer}/decision`, mgr.token, { action: 'approve' });
+  check('manager approves a nomination', r.s === 200 && r.d.status === 'approved', r);
+  r = await post(`${P}/peer-feedback/${nomEmp3}/decision`, mgr.token, { action: 'reject' });
+  check('manager rejects a nomination', r.s === 200 && r.d.status === 'rejected', r);
+  r = await post(`${P}/peer-feedback/${nomEmp3}/decision`, mgr.token, { action: 'approve' });
+  check('a decided nomination cannot be re-decided', r.s === 400, r);
+  r = await post(`${P}/appraisals/${apId}/peers`, mgr.token, { peer_emails: [emp2.email] });
+  check('manager adds a peer directly (auto-approved)', r.s === 201 && r.d[0].status === 'approved', r.d);
+
+  const fullSelf = {
+    goal_ratings: [{ goal_id: g1, rating: 4, comment: 'Latency target hit' }, { goal_id: g2, rating: 5, comment: 'Mentored 2' }],
+    competency_ratings: [{ competency_id: cComm, rating: 4 }, { competency_id: cOwn, rating: 5 }],
+    overall_comment: 'Strong half', submit: true
+  };
+  r = await put(`${P}/appraisals/${apId}/self-review`, emp.token, fullSelf);
+  check('employee submits complete self review', r.s === 200 && r.d.self_status === 'submitted' && r.d.self_score != null, r.d);
+  r = await put(`${P}/appraisals/${apId}/self-review`, emp.token, fullSelf);
+  check('submitted self review is locked', r.s === 400, r);
+  r = await get(`${P}/appraisals/${apId}`, mgr.token);
+  check('manager sees submitted self review', r.s === 200 && r.d.self_review?.overall_comment === 'Strong half', r.d);
+
+  r = await post(`${P}/appraisal-configs/${cycleId}/advance`, admin, {});
+  check('advance blocked while self reviews are pending', r.s === 400 && /self review/.test(r.d.detail), r);
+  r = await post(`${P}/appraisal-configs/${cycleId}/advance`, admin, { force: true });
+  check('advance with force → manager review', r.s === 200 && r.d.to === 'manager_review' && r.d.pending_self_reviews === 5, r.d);
+  r = await put(`${P}/appraisals/${apId}/self-review`, emp.token, { goal_ratings: [] });
+  check('self review closed in manager review phase', r.s === 400, r);
+  r = await put(`${P}/appraisals/${apId}/manager-review`, emp.token, { goal_ratings: [] });
+  check('employee cannot write the manager review', r.s === 403, r);
+  r = await put(`${P}/appraisals/${apId}/manager-review`, mgr2.token, { goal_ratings: [] });
+  check("other team's manager cannot write the manager review", r.s === 403, r);
+  const mgrReview = {
+    goal_ratings: [{ goal_id: g1, rating: 4 }, { goal_id: g2, rating: 3 }],
+    competency_ratings: [{ competency_id: cComm, rating: 4 }, { competency_id: cOwn, rating: 5 }],
+    strengths: 'Ownership', improvements: 'Delegation', submit: true
+  };
+  r = await put(`${P}/appraisals/${apId}/manager-review`, mgr.token, mgrReview);
+  check('manager review needs overall comments to submit', r.s === 400, r);
+  r = await put(`${P}/appraisals/${apId}/manager-review`, mgr.token, { ...mgrReview, overall_comment: 'Solid performer' });
+  // goals: (4*60 + 3*40)/100 = 3.6 ; competencies (4+5)/2 = 4.5 ; 0.8*3.6 + 0.2*4.5 = 3.78
+  check('weighted overall score = 3.78', r.s === 200 && r.d.manager_status === 'submitted' && r.d.manager_score === 3.78, r.d);
+  r = await get(`${P}/appraisals/${apId}`, emp.token);
+  check('employee cannot see manager ratings before release', r.s === 200 && r.d.manager_review === null && r.d.final_rating === null && r.d.manager_score === null, r.d);
+
+  r = await post(`${P}/appraisal-configs/${cycleId}/advance`, admin, { force: true });
+  check('advance → 360° peer feedback', r.s === 200 && r.d.to === 'peer_feedback', r.d);
+  r = await get(`${P}/peer-feedback/inbox`, peer.token);
+  const inboxItem = r.d?.find(p => p.reviewee_email === emp.email);
+  check('approved peer sees the request in their inbox', r.s === 200 && inboxItem?.can_submit === true && inboxItem.competencies.length === 2, r.d);
+  r = await get(`${P}/peer-feedback/inbox`, emp3.token);
+  check('rejected nominee has no request', r.s === 200 && !r.d.some(p => p.reviewee_email === emp.email), r.d);
+  r = await put(`${P}/peer-feedback/${nomEmp3}`, emp3.token, { ratings: [], submit: true });
+  check('rejected nominee cannot submit feedback', r.s === 400, r);
+  r = await put(`${P}/peer-feedback/${nomPeer}`, emp2.token, { ratings: [] });
+  check("cannot submit someone else's peer request", r.s === 403, r);
+  r = await put(`${P}/peer-feedback/${nomPeer}`, peer.token, { ratings: [{ competency_id: cComm, rating: 5 }], submit: true });
+  check('peer feedback must rate every competency', r.s === 400, r);
+  r = await put(`${P}/peer-feedback/${nomPeer}`, peer.token, { ratings: [{ competency_id: cComm, rating: 5 }, { competency_id: cOwn, rating: 4 }], strengths: 'PEER-ONE-STRENGTH', submit: true });
+  check('peer submits feedback', r.s === 200 && r.d.status === 'submitted', r.d);
+  const emp2Inbox = (await get(`${P}/peer-feedback/inbox`, emp2.token)).d?.find(p => p.reviewee_email === emp.email);
+  r = await put(`${P}/peer-feedback/${emp2Inbox?.id}`, emp2.token, { ratings: [{ competency_id: cComm, rating: 3 }, { competency_id: cOwn, rating: 3 }], improvements: 'PEER-TWO-IMPROVE', submit: true });
+  check('manager-added peer submits feedback', r.s === 200, r);
+  r = await post(`${P}/appraisals/${emp2Ap}/peers`, mgr.token, { peer_emails: [peer.email] });
+  check('manager adds a single peer for a second reviewee during the 360° phase', r.s === 201 && r.d[0].status === 'approved', r.d);
+  const soloReq = (await get(`${P}/peer-feedback/inbox`, peer.token)).d?.find(p => p.reviewee_email === emp2.email);
+  r = await put(`${P}/peer-feedback/${soloReq?.id}`, peer.token, { ratings: [{ competency_id: cComm, rating: 2 }, { competency_id: cOwn, rating: 4 }], strengths: 'SOLO-PEER-TEXT', submit: true });
+  check('single peer submits feedback for the second reviewee', r.s === 200, r);
+  r = await get(`${P}/appraisals/${apId}`, mgr.token);
+  check('manager sees peer feedback with peer names', r.d?.peer_feedback?.length === 2 && r.d.peer_feedback.some(p => p.peer_email === peer.email), r.d?.peer_feedback);
+  r = await get(`${P}/appraisals/${apId}`, emp.token);
+  check('employee sees no peer feedback before release', r.d?.peer_feedback?.length === 0, r.d);
+
+  r = await post(`${P}/appraisal-configs/${cycleId}/advance`, admin, {});
+  check('advance → calibration', r.s === 200 && r.d.to === 'calibration', r.d);
+  r = await post(`${P}/appraisals/${apId}/calibrate`, mgr.token, { rating: 4.1, reason: 'Org-wide calibration' });
+  check('manager cannot calibrate', r.s === 403, r);
+  r = await post(`${P}/appraisals/${apId}/calibrate`, admin, { rating: 4.1 });
+  check('calibration requires a reason (422)', r.s === 422, r);
+  r = await post(`${P}/appraisals/${emp2Ap}/calibrate`, admin, { rating: 3, reason: 'No review yet' });
+  check('cannot calibrate an appraisal without a manager review', r.s === 400, r);
+  r = await post(`${P}/appraisals/${apId}/calibrate`, admin, { rating: 4.1, reason: 'Org-wide calibration' });
+  check('admin calibrates final rating', r.s === 200 && r.d.final_rating === 4.1 && r.d.calibration.original_rating === 3.78, r.d);
+  r = await get(`${P}/appraisals/${apId}`, mgr.token);
+  check('manager does not see the calibrated rating before release', r.d?.final_rating === 3.78 && r.d.calibration === null, r.d);
+  r = await post(`${P}/appraisals/${apId}/acknowledge`, emp.token, {});
+  check('cannot acknowledge before release', r.s === 400, r);
+  r = await get(`${P}/appraisals/stats?cycle_id=${cycleId}`, admin);
+  check('admin stats: distribution and counts', r.s === 200 && r.d.total === 6 && r.d.manager_submitted === 1 && r.d.calibrated === 1 && r.d.distribution.find(d => d.value === 4)?.count === 1, r.d);
+  r = await get(`${P}/appraisals/stats?cycle_id=${cycleId}`, mgr.token);
+  check('manager cannot read calibration stats', r.s === 403, r);
+
+  r = await post(`${P}/appraisal-configs/${cycleId}/advance`, admin, {});
+  check('release appraisals', r.s === 200 && r.d.to === 'released' && r.d.released === 6, r.d);
+  r = await get(`${P}/appraisals/${apId}`, emp.token);
+  const released = r.d;
+  const body = JSON.stringify(released);
+  check('released: employee sees manager review and calibrated final rating',
+    r.s === 200 && released.manager_review?.overall_comment === 'Solid performer' && released.final_rating === 4.1 && released.final_label === 'Exceeds expectations' && released.calibrated === true && released.calibration === null, released);
+  check('released: employee gets anonymised peer feedback', released.peer_feedback?.length === 2 && body.includes('PEER-ONE-STRENGTH') && released.peer_feedback.every(p => !('peer_email' in p) && !('peer_name' in p) && !('id' in p)), released.peer_feedback);
+  check('released: 2 responses meet the default threshold (not withheld)', released.peer_feedback_withheld === false, released);
+  r = await get(`${P}/appraisals/${emp2Ap}`, emp2.token);
+  check('released: 1 response is below the threshold → withheld from the reviewee (no text, no ratings)',
+    r.s === 200 && r.d.peer_feedback_withheld === true && r.d.peer_feedback.length === 0 && !JSON.stringify(r.d).includes('SOLO-PEER-TEXT'), r.d);
+  r = await get(`${P}/appraisals/${emp2Ap}`, mgr.token);
+  check('withheld feedback is still visible to the manager', r.s === 200 && r.d.peer_feedback.length === 1 && r.d.peer_feedback[0].strengths === 'SOLO-PEER-TEXT', r.d?.peer_feedback);
+  r = await get(`${P}/appraisals/${emp2Ap}`, admin);
+  check('withheld feedback is still visible to admins', r.s === 200 && r.d.peer_feedback.length === 1 && r.d.peer_feedback_withheld === undefined, r.d?.peer_feedback);
+  check('released: no peer identity leaks to the reviewee', !body.includes(emp2.email) && !body.includes(emp2.name) && !released.peer_nominations.some(n => n.status === 'submitted'), released.peer_nominations);
+  r = await get(`${P}/pending-actions`, emp.token);
+  check('dashboard: "appraisal results are ready"', r.d?.items?.some(i => i.key === `appraisal-ack-${cycleId}`), r.d);
+  r = await post(`${P}/appraisals/${apId}/acknowledge`, mgr.token, {});
+  check('only the employee can acknowledge', r.s === 403, r);
+  r = await post(`${P}/appraisals/${apId}/acknowledge`, emp.token, { agrees: false });
+  check('disagreement requires a comment', r.s === 400, r);
+  r = await post(`${P}/appraisals/${apId}/acknowledge`, emp.token, { agrees: false, comment: 'I expected a 5 on goal 2' });
+  check('employee acknowledges with disagreement', r.s === 200 && r.d.acknowledgement?.agrees === false, r.d);
+  r = await post(`${P}/appraisals/${apId}/acknowledge`, emp.token, { agrees: true });
+  check('acknowledgement is one-time', r.s === 400, r);
+  r = await post(`${P}/appraisal-configs/${cycleId}/advance`, admin, {});
+  check('cannot advance past released', r.s === 400, r);
+
+  // ====================================================================
+  section('PF-3 1:1s');
+  const when = new Date(Date.now() + 2 * 86400000).toISOString();
+  r = await post(`${P}/one-on-ones`, emp.token, { employee_email: emp2.email, scheduled_at: when });
+  check('employee cannot schedule 1:1s', r.s === 403, r);
+  r = await post(`${P}/one-on-ones`, mgr2.token, { employee_email: emp.email, scheduled_at: when });
+  check('manager cannot schedule with someone outside the team', r.s === 403, r);
+  r = await post(`${P}/one-on-ones`, mgr.token, { employee_email: emp.email, scheduled_at: 'tomorrow' });
+  check('invalid date rejected (422)', r.s === 422, r);
+  r = await post(`${P}/one-on-ones`, mgr.token, { employee_email: emp.email, scheduled_at: when, duration_minutes: 30, recurrence: 'weekly', agenda: ['Career goals'] });
+  check('manager schedules a weekly 1:1 with agenda', r.s === 201 && r.d.status === 'scheduled' && r.d.agenda.length === 1, r.d);
+  const mtg = r.d?.id;
+  const contract = await withDb(db => db.collection('one_on_ones').findOne({ id: mtg }));
+  check('stored per the one_on_ones contract (scheduled_at is a Date)', contract && contract.scheduled_at instanceof Date && contract.manager_email === mgr.email && contract.employee_email === emp.email && contract.duration_minutes === 30 && contract.status === 'scheduled', contract);
+  r = await post(`${P}/one-on-ones/${mtg}/agenda`, emp.token, { text: 'Promotion timeline' });
+  check('employee adds a talking point', r.s === 201 && r.d.agenda.length === 2, r.d);
+  r = await get(`${P}/one-on-ones/${mtg}`, mgr2.token);
+  check('non-participant cannot open the 1:1', r.s === 403, r);
+  r = await put(`${P}/one-on-ones/${mtg}/notes`, mgr.token, { shared_notes: 'Discussed roadmap', private_notes: 'MGR-PRIVATE-NOTE' });
+  check('manager writes shared + private notes', r.s === 200 && r.d.private_notes === 'MGR-PRIVATE-NOTE', r.d);
+  r = await put(`${P}/one-on-ones/${mtg}/notes`, emp.token, { private_notes: 'EMP-PRIVATE-NOTE' });
+  r = await get(`${P}/one-on-ones/${mtg}`, emp.token);
+  check('employee sees shared notes and only their own private notes', r.d?.shared_notes === 'Discussed roadmap' && r.d.private_notes === 'EMP-PRIVATE-NOTE' && !JSON.stringify(r.d).includes('MGR-PRIVATE-NOTE'), r.d);
+  r = await get(`${P}/one-on-ones?scope=all`, admin);
+  check('admin listing never includes private notes', r.s === 200 && r.d.some(m => m.id === mtg) && !JSON.stringify(r.d).includes('PRIVATE-NOTE'), r.d?.length);
+  r = await get(`${P}/one-on-ones?scope=all`, mgr.token);
+  check('manager cannot list all 1:1s', r.s === 403, r);
+  r = await post(`${P}/one-on-ones/${mtg}/action-items`, mgr.token, { text: 'Outsider task', owner_email: mgr2.email });
+  check('action item owner must be a participant', r.s === 400, r);
+  r = await post(`${P}/one-on-ones/${mtg}/action-items`, mgr.token, { text: 'Draft promotion case', owner_email: emp.email, due_date: addDays(today, 7) });
+  r = await post(`${P}/one-on-ones/${mtg}/action-items`, emp.token, { text: 'Share feedback doc', owner_email: mgr.email });
+  const ai2 = r.d?.action_items?.[1]?.id;
+  check('both sides add action items', r.s === 201 && r.d.action_items.length === 2, r.d);
+  r = await patch(`${P}/one-on-ones/${mtg}/action-items/${ai2}`, mgr.token, { done: true });
+  check('mark an action item done', r.s === 200 && r.d.action_items.find(a => a.id === ai2).done === true, r.d);
+  r = await get(`${P}/pending-actions`, emp.token);
+  check('dashboard: upcoming 1:1 and open action item', r.d?.items?.some(i => i.key === 'one-on-ones') && r.d.items.some(i => i.key === 'action-items' && i.count === 1), r.d);
+  r = await post(`${P}/one-on-ones/${mtg}/complete`, emp.token, {});
+  check('employee cannot complete the 1:1', r.s === 403, r);
+  r = await post(`${P}/one-on-ones/${mtg}/complete`, mgr.token, {});
+  const next = r.d?.next;
+  check('completing a weekly 1:1 creates the next occurrence 7 days later',
+    r.s === 200 && r.d.meeting.status === 'completed' && next && Date.parse(next.scheduled_at) - Date.parse(when) === 7 * 86400000, r.d);
+  check('open action items carry over (done ones do not)', next?.action_items?.length === 1 && next.action_items[0].text === 'Draft promotion case' && next.agenda.length === 0 && next.private_notes === '', next);
+  r = await post(`${P}/one-on-ones/${mtg}/agenda`, emp.token, { text: 'late' });
+  check('cannot add agenda to a completed 1:1', r.s === 400, r);
+  r = await put(`${P}/one-on-ones/${next?.id}`, emp.token, { status: 'cancelled' });
+  check('employee cannot cancel', r.s === 403, r);
+  r = await put(`${P}/one-on-ones/${next?.id}`, mgr.token, { scheduled_at: new Date(Date.now() + 10 * 86400000).toISOString() });
+  check('manager reschedules', r.s === 200, r);
+  r = await get(`${P}/one-on-ones?when=upcoming`, emp.token);
+  check('employee upcoming list', r.s === 200 && r.d.length === 1 && r.d[0].id === next?.id, r.d);
+  r = await get('/notifications', emp.token);
+  check('employee notified of the 1:1', JSON.stringify(r.d).includes('one_on_one_scheduled'));
+
+  section('PF-3 Continuous feedback');
+  r = await post(`${P}/feedback`, emp.token, { to_email: emp.email, type: 'praise', message: 'Me me me' });
+  check('cannot give feedback to yourself', r.s === 400, r);
+  r = await post(`${P}/feedback`, emp.token, { to_email: emp3.email, type: 'kudos', message: 'Great job' });
+  check('invalid feedback type rejected (422)', r.s === 422, r);
+  r = await post(`${P}/feedback`, emp.token, { to_email: emp3.email, type: 'praise', visibility: 'private', message: 'PRAISE-FOR-RHEA great demo' });
+  check('give praise to a colleague', r.s === 201 && r.d.manager_email === mgr2.email, r.d);
+  r = await post(`${P}/feedback`, emp.token, { to_email: emp3.email, type: 'constructive', visibility: 'manager_only', message: 'MANAGER-ONLY-NOTE about handoffs' });
+  check('give manager-only constructive feedback', r.s === 201, r);
+  r = await get(`${P}/feedback?box=received`, emp3.token);
+  check('recipient sees private feedback but not manager-only', r.s === 200 && JSON.stringify(r.d).includes('PRAISE-FOR-RHEA') && !JSON.stringify(r.d).includes('MANAGER-ONLY-NOTE'), r.d);
+  r = await get(`${P}/feedback?box=team`, mgr2.token);
+  check("recipient's manager sees both", JSON.stringify(r.d).includes('PRAISE-FOR-RHEA') && JSON.stringify(r.d).includes('MANAGER-ONLY-NOTE'), r.d);
+  r = await get(`${P}/feedback?box=team`, mgr.token);
+  check('other managers do not see it', r.s === 200 && !JSON.stringify(r.d).includes('PRAISE-FOR-RHEA'), r.d);
+  r = await get(`${P}/feedback?box=given`, emp.token);
+  check('giver sees what they gave', r.d?.length === 2, r.d);
+  r = await get(`${P}/feedback?box=all`, emp.token);
+  check('employee cannot read all feedback', r.s === 403, r);
+  r = await post(`${P}/feedback/requests`, emp.token, { recipient_emails: [emp2.email, peer.email], topic: 'My design review' });
+  check('request feedback from two colleagues', r.s === 201 && r.d.length === 2, r.d);
+  const fr = r.d?.find(x => x.recipient_email === emp2.email)?.id;
+  const fr2 = r.d?.find(x => x.recipient_email === peer.email)?.id;
+  r = await get(`${P}/feedback/requests?box=incoming&status=pending`, emp2.token);
+  check('colleague sees the incoming request', r.d?.some(x => x.id === fr), r.d);
+  r = await post(`${P}/feedback`, peer.token, { to_email: emp.email, type: 'praise', message: 'Answering wrong req', request_id: fr });
+  check("cannot answer someone else's request", r.s === 404, r);
+  r = await post(`${P}/feedback`, emp2.token, { to_email: emp.email, type: 'constructive', message: 'Clear diagrams, add more context', request_id: fr });
+  check('answer the request with feedback', r.s === 201 && r.d.topic === 'My design review', r.d);
+  r = await post(`${P}/feedback`, emp2.token, { to_email: emp.email, type: 'praise', message: 'again', request_id: fr });
+  check('a request can only be answered once', r.s === 400, r);
+  r = await post(`${P}/feedback/requests/${fr2}/decline`, peer.token, {});
+  check('decline a request', r.s === 200 && r.d.status === 'declined', r);
+  r = await get(`${P}/feedback/requests?box=outgoing`, emp.token);
+  check('requester sees statuses', r.d?.find(x => x.id === fr)?.status === 'completed' && r.d.find(x => x.id === fr2)?.status === 'declined', r.d);
+
+  // ====================================================================
+  section('PF-4 Performance improvement plans');
+  const pipBody = {
+    employee_email: emp2.email, start_date: today, end_date: addDays(today, 60),
+    reason: 'Missed delivery commitments in Q3',
+    objectives: [{ title: 'Deliver sprint commitments', success_criteria: '90% of committed points for 3 sprints' }, { title: 'Code review turnaround', success_criteria: '< 24h median' }],
+    support: 'Weekly pairing with senior engineer', check_in_frequency_days: 7
+  };
+  r = await post(`${P}/pips`, emp.token, pipBody);
+  check('employee cannot create a PIP', r.s === 403, r);
+  r = await post(`${P}/pips`, mgr2.token, pipBody);
+  check('manager cannot create a PIP outside the team', r.s === 403, r);
+  r = await post(`${P}/pips`, mgr.token, { ...pipBody, end_date: addDays(today, -1) });
+  check('end date before start rejected', r.s === 400, r);
+  r = await post(`${P}/pips`, mgr.token, { ...pipBody, objectives: [] });
+  check('at least one objective required (422)', r.s === 422, r);
+  r = await post(`${P}/pips`, mgr.token, pipBody);
+  check('manager creates PIP for department report', r.s === 201 && r.d.status === 'active' && r.d.objectives.length === 2 && r.d.next_check_in_date === addDays(today, 7), r.d);
+  const pip = r.d?.id;
+  const [obj1, obj2] = (r.d?.objectives || []).map(o => o.id);
+  r = await post(`${P}/pips`, mgr.token, pipBody);
+  check('only one active PIP per employee', r.s === 400, r);
+  r = await get(`${P}/pips/${pip}`, emp.token);
+  check('colleague cannot see the PIP (404)', r.s === 404, r);
+  r = await get(`${P}/pips/${pip}`, mgr2.token);
+  check('other manager cannot see the PIP (404)', r.s === 404, r);
+  r = await get(`${P}/pips/${pip}`, emp2.token);
+  check('employee sees their PIP', r.s === 200 && r.d.viewer_role === 'employee', r);
+  r = await get(`${P}/pips/${pip}`, admin);
+  check('admin sees the PIP', r.s === 200, r);
+  r = await get(`${P}/pips?scope=team`, mgr.token);
+  check('manager team list includes the PIP', r.d?.some(p => p.id === pip), r.d);
+  r = await get(`${P}/pips?scope=team`, mgr2.token);
+  check("other manager's team list does not", r.s === 200 && !r.d.some(p => p.id === pip), r.d);
+  r = await get(`${P}/pips?scope=all`, mgr.token);
+  check('manager cannot list all PIPs', r.s === 403, r);
+  r = await get(`${P}/pending-actions`, emp2.token);
+  check('dashboard: employee asked to acknowledge the PIP', r.d?.items?.some(i => i.key === 'pip-ack'), r.d);
+  r = await post(`${P}/pips/${pip}/check-ins`, emp2.token, { date: today, note: 'self check-in' });
+  check('employee cannot record check-ins', r.s === 403, r);
+  r = await post(`${P}/pips/${pip}/check-ins`, mgr.token, { date: addDays(today, 2), note: 'future' });
+  check('future check-in date rejected', r.s === 400, r);
+  r = await post(`${P}/pips/${pip}/check-ins`, mgr.token, { date: today, note: 'Good first week', objective_updates: [{ objective_id: obj1, status: 'in_progress' }, { objective_id: obj2, status: 'met' }] });
+  check('manager records a check-in with objective statuses', r.s === 201 && r.d.check_ins.length === 1 && r.d.objectives.find(o => o.id === obj2).status === 'met' && r.d.objectives_met === 1, r.d);
+  r = await post(`${P}/pips/${pip}/acknowledge`, mgr.token, {});
+  check('manager cannot acknowledge for the employee', r.s === 403, r);
+  r = await post(`${P}/pips/${pip}/acknowledge`, emp2.token, { comment: 'Understood, I will work on it' });
+  check('employee acknowledges with a comment', r.s === 200 && r.d.acknowledgement?.comment.includes('Understood'), r.d);
+  r = await post(`${P}/pips/${pip}/acknowledge`, emp2.token, {});
+  check('acknowledgement is one-time', r.s === 400, r);
+  r = await post(`${P}/pips/${pip}/comments`, emp2.token, { text: 'Could we add pairing on Fridays?' });
+  check('employee comments on the PIP', r.s === 201 && r.d.comments.length === 1 && r.d.comments[0].role === 'employee', r.d);
+  r = await post(`${P}/pips/${pip}/comments`, emp.token, { text: 'nosy' });
+  check('outsider cannot comment', r.s === 404, r);
+  r = await post(`${P}/pips/${pip}/outcome`, mgr.token, { outcome: 'extended' });
+  check('extension requires a new end date (422)', r.s === 422, r);
+  r = await post(`${P}/pips/${pip}/outcome`, mgr.token, { outcome: 'extended', extended_end_date: addDays(today, 30) });
+  check('extension must go past the current end date', r.s === 400, r);
+  r = await post(`${P}/pips/${pip}/outcome`, mgr.token, { outcome: 'extended', extended_end_date: addDays(today, 90), notes: 'More time for objective 1' });
+  check('extend the PIP', r.s === 200 && r.d.status === 'active' && r.d.end_date === addDays(today, 90) && r.d.extensions.length === 1, r.d);
+  r = await post(`${P}/pips/${pip}/outcome`, emp2.token, { outcome: 'successful' });
+  check('employee cannot set the outcome', r.s === 403, r);
+  r = await post(`${P}/pips/${pip}/outcome`, mgr.token, { outcome: 'successful', notes: 'All objectives met' });
+  check('close the PIP as successful', r.s === 200 && r.d.status === 'closed' && r.d.outcome === 'successful', r.d);
+  r = await post(`${P}/pips/${pip}/check-ins`, mgr.token, { date: today, note: 'after close' });
+  check('no check-ins on a closed PIP', r.s === 400, r);
+  // Overdue check-in → cron reminder
+  r = await post(`${P}/pips`, mgr.token, { ...pipBody, employee_email: emp.email, start_date: addDays(today, -10), end_date: addDays(today, 2) });
+  const pip2 = r.d?.id;
+  check('PIP with an overdue check-in reports check_in_due', r.s === 201 && r.d.check_in_due === true, r.d);
+  r = await get(`${P}/pending-actions`, mgr.token);
+  check('dashboard: manager sees PIP check-ins due', r.d?.items?.some(i => i.key === 'pip-checkins'), r.d);
+  r = await post('/v2/jobs/performance-pip-reminders/run', admin, {});
+  check('PIP reminder job: check-in + ending reminders', r.s === 200 && r.d.result.check_in_reminders >= 1 && r.d.result.ending_reminders >= 1, r.d);
+  r = await post('/v2/jobs/performance-pip-reminders/run', admin, {});
+  check('PIP reminders are sent once per day', r.s === 200 && r.d.result.check_in_reminders === 0, r.d);
+  await new Promise(res => setTimeout(res, 300));
+  r = await get('/notifications', mgr.token);
+  check('manager received the PIP reminder', JSON.stringify(r.d).includes('pip_check_in_due'));
+  r = await del(`${P}/pips/${pip2}`, mgr.token);
+  check('only admins can delete a PIP', r.s === 403, r);
+
+  // ====================================================================
+  section('PF-5 Learning: courses and assignments');
+  r = await post(`${P}/courses`, emp.token, { title: 'X' });
+  check('employee cannot create courses', r.s === 403, r);
+  r = await post(`${P}/courses`, admin, { title: 'Bad link', link: 'not a url' });
+  check('invalid course link rejected (422)', r.s === 422, r);
+  r = await post(`${P}/courses`, admin, { title: 'POSH Awareness', provider: 'Internal', link: 'https://lms.example.com/posh', duration_hours: 2, category: 'Compliance', mandatory: true });
+  check('admin creates mandatory course', r.s === 201 && r.d.mandatory === true, r);
+  const posh = r.d?.id;
+  r = await post(`${P}/courses`, admin, { title: 'Advanced SQL', provider: 'Coursera', duration_hours: 12, category: 'Technical' });
+  const sql = r.d?.id;
+  r = await post(`${P}/courses/${posh}/assign`, admin, { departments: ['Sales'], due_date: addDays(today, 5) });
+  check('assign a course to a whole department', r.s === 201 && r.d.assigned === 3, r.d);
+  r = await post(`${P}/courses/${posh}/assign`, admin, { departments: ['Sales'], due_date: addDays(today, 5) });
+  check('re-assigning skips existing assignments', r.s === 201 && r.d.assigned === 0 && r.d.skipped_existing === 3, r.d);
+  r = await post(`${P}/courses/${posh}/assign`, admin, {});
+  check('assignment needs employees or departments (422)', r.s === 422, r);
+  r = await post(`${P}/courses/${posh}/assign`, admin, { employee_emails: [emp.email], due_date: addDays(today, -3) });
+  check('past due date rejected', r.s === 400, r);
+  r = await post(`${P}/courses/${posh}/assign`, mgr.token, { employee_emails: [emp.email], due_date: addDays(today, 10) });
+  check('manager assigns a course to a team member', r.s === 201 && r.d.assigned === 1, r.d);
+  r = await post(`${P}/courses/${posh}/assign`, mgr.token, { employee_emails: [emp3.email] });
+  check('manager cannot assign outside the team', r.s === 403, r);
+  r = await post(`${P}/courses/${posh}/assign`, mgr.token, { departments: ['Engineering'] });
+  check('only admins assign whole departments', r.s === 403, r);
+  r = await post(`${P}/courses/${posh}/assign`, emp.token, { employee_emails: [emp2.email] });
+  check('employee cannot assign courses', r.s === 403, r);
+  r = await get(`${P}/learning/assignments?scope=my`, emp3.token);
+  const a3 = r.d?.find(a => a.course_id === posh);
+  check('employee sees their assignment (due soon)', r.s === 200 && a3?.status === 'not_started' && a3.due_soon === true && a3.mandatory === true, r.d);
+  r = await put(`${P}/learning/assignments/${a3?.id}/progress`, peer.token, { status: 'completed' });
+  check("cannot update someone else's progress", r.s === 403, r);
+  r = await put(`${P}/learning/assignments/${a3?.id}/progress`, emp3.token, { status: 'finished' });
+  check('invalid progress status rejected (422)', r.s === 422, r);
+  r = await put(`${P}/learning/assignments/${a3?.id}/progress`, emp3.token, { status: 'in_progress', progress_note: 'Module 1 done' });
+  check('employee updates progress', r.s === 200 && r.d.status === 'in_progress' && r.d.started_at, r.d);
+  r = await upload(`${P}/learning/assignments/${a3?.id}/certificate`, emp3.token, [{ field: 'file', name: 'cert.exe', type: 'application/x-msdownload', content: 'MZ' }]);
+  check('certificate must be a PDF or image', r.s === 400, r);
+  r = await upload(`${P}/learning/assignments/${a3?.id}/certificate`, emp3.token, [{ field: 'file', name: 'posh.pdf', type: 'application/pdf', content: PDF }]);
+  check('upload completion certificate → completed', r.s === 200 && r.d.status === 'completed' && r.d.certificate?.url?.includes('/uploads/'), r.d);
+  const peerA = (await get(`${P}/learning/assignments?scope=my`, peer.token)).d?.find(a => a.course_id === posh);
+  await withDb(db => db.collection('course_assignments').updateOne({ id: peerA.id }, { $set: { due_date: addDays(today, -2) } }));
+  r = await get(`${P}/learning/assignments?scope=team&overdue=true`, mgr2.token);
+  check('overdue tracking for the team', r.s === 200 && r.d.length === 1 && r.d[0].id === peerA.id && r.d[0].overdue === true, r.d);
+  r = await get(`${P}/learning/assignments?scope=all`, mgr2.token);
+  check('manager cannot list all assignments', r.s === 403, r);
+  r = await get(`${P}/learning/summary`, admin);
+  const poshStats = r.d?.by_course?.find(c => c.course_id === posh);
+  check('admin summary per course', r.s === 200 && poshStats?.assigned === 4 && poshStats.completed === 1 && poshStats.overdue === 1, r.d);
+  r = await post('/v2/jobs/performance-learning-reminders/run', admin, {});
+  check('learning reminder job: due-in-7-days + overdue', r.s === 200 && r.d.result.due_7d === 1 && r.d.result.overdue === 1, r.d);
+  r = await post('/v2/jobs/performance-learning-reminders/run', admin, {});
+  check('learning reminders are not repeated for the same stage', r.d?.result?.due_7d === 0 && r.d.result.overdue === 0, r.d);
+  r = await get(`${P}/pending-actions`, peer.token);
+  check('dashboard: overdue course', r.d?.items?.some(i => i.key === 'courses-overdue'), r.d);
+  r = await post(`${P}/courses/${sql}/enroll`, emp.token, {});
+  check('employee self-enrolls in an optional course', r.s === 201 && r.d.self_enrolled === true, r.d);
+  r = await post(`${P}/courses/${sql}/enroll`, emp.token, {});
+  check('cannot enroll twice', r.s === 400, r);
+  r = await get(`${P}/courses`, emp.token);
+  check('catalog shows my assignment state; counts hidden from employees', r.s === 200 && r.d.find(c => c.id === sql)?.my_assignment && !('assigned_count' in r.d[0]), r.d);
+  r = await del(`${P}/courses/${posh}`, admin);
+  check('a course with assignments is archived, not deleted', r.s === 200 && r.d.archived === true, r.d);
+  r = await post(`${P}/courses/${posh}/assign`, admin, { employee_emails: [emp2.email] });
+  check('archived course cannot be assigned', r.s === 400, r);
+
+  section('PF-5 Certifications');
+  r = await post(`${P}/certifications`, emp.token, { name: 'AWS SA', issued_date: addDays(today, -400), expiry_date: addDays(today, -500) });
+  check('expiry before issue rejected', r.s === 400, r);
+  r = await post(`${P}/certifications`, emp.token, { name: 'AWS SA', issuer: 'AWS', credential_url: 'notaurl' });
+  check('invalid credential URL rejected (422)', r.s === 422, r);
+  r = await post(`${P}/certifications`, emp.token, { employee_email: emp2.email, name: 'Fake cert' });
+  check('employee cannot add certifications for others', r.s === 403, r);
+  r = await post(`${P}/certifications`, emp.token, { name: 'AWS Solutions Architect', issuer: 'AWS', issued_date: addDays(today, -700), expiry_date: addDays(today, 20), credential_url: 'https://aws.example.com/cred/1' });
+  check('add certification expiring in 20 days → expiring', r.s === 201 && r.d.status === 'expiring', r.d);
+  const cert = r.d?.id;
+  r = await post(`${P}/certifications`, emp.token, { name: 'Scrum Master', issuer: 'Scrum.org', issued_date: addDays(today, -100) });
+  check('certification without expiry is valid', r.s === 201 && r.d.status === 'valid', r.d);
+  r = await upload(`${P}/certifications/${cert}/file`, emp.token, [{ field: 'file', name: 'aws.png', type: 'image/png', content: Buffer.from([137, 80, 78, 71]) }]);
+  check('upload certification file', r.s === 200 && r.d.file?.name === 'aws.png', r.d);
+  r = await put(`${P}/certifications/${cert}`, emp2.token, { name: 'hijack' });
+  check("colleague cannot edit someone's certification", r.s === 403, r);
+  r = await get(`${P}/certifications?scope=team`, mgr.token);
+  check('manager sees team certifications', r.d?.some(c => c.id === cert), r.d);
+  r = await get(`${P}/certifications?scope=team`, mgr2.token);
+  check("other manager doesn't", r.s === 200 && !r.d.some(c => c.id === cert), r.d);
+  r = await post('/v2/jobs/performance-certification-expiry/run', admin, {});
+  check('expiry job sends 30-day alert', r.s === 200 && r.d.result.d30 >= 1, r.d);
+  r = await post('/v2/jobs/performance-certification-expiry/run', admin, {});
+  check('expiry alert not repeated', r.d?.result?.d30 === 0, r.d);
+  r = await put(`${P}/certifications/${cert}`, emp.token, { expiry_date: addDays(today, -1) });
+  check('updating expiry date resets alerts; status expired', r.s === 200 && r.d.status === 'expired' && r.d.alerts_sent.length === 0, r.d);
+  r = await post('/v2/jobs/performance-certification-expiry/run', admin, {});
+  check('expired alert sent', r.d?.result?.expired === 1, r.d);
+  r = await get(`${P}/pending-actions`, emp.token);
+  check('dashboard: certifications expiring', r.d?.items?.some(i => i.key === 'certs-expiring'), r.d);
+
+  section('PF-5 Skills matrix and gaps');
+  r = await post(`${P}/skills`, emp.token, { name: 'React' });
+  check('employee cannot create skills', r.s === 403, r);
+  r = await post(`${P}/skills`, admin, { name: 'React', category: 'Frontend' });
+  const react = r.d?.id;
+  r = await post(`${P}/skills`, admin, { name: 'Node.js', category: 'Backend' });
+  const node = r.d?.id;
+  check('admin creates skills', !!react && !!node, r);
+  r = await post(`${P}/skills`, admin, { name: 'react' });
+  check('duplicate skill name rejected', r.s === 400, r);
+  r = await put(`${P}/skills/me`, emp.token, { ratings: [{ skill_id: react, rating: 6 }] });
+  check('proficiency outside 1–5 rejected (422)', r.s === 422, r);
+  r = await put(`${P}/skills/me`, emp.token, { ratings: [{ skill_id: 'nope', rating: 3 }] });
+  check('unknown skill rejected', r.s === 400, r);
+  r = await put(`${P}/skills/me`, emp.token, { ratings: [{ skill_id: react, rating: 4 }, { skill_id: node, rating: 2 }] });
+  check('employee self-rates skills', r.s === 200, r);
+  r = await get(`${P}/pending-actions`, mgr.token);
+  check('dashboard: manager has skills to validate', r.d?.items?.some(i => i.key === 'skills-validate'), r.d);
+  r = await put(`${P}/skills/employee/${encodeURIComponent(emp.email)}/validate`, mgr2.token, { ratings: [{ skill_id: react, rating: 3 }] });
+  check("other manager cannot validate", r.s === 403, r);
+  r = await put(`${P}/skills/employee/${encodeURIComponent(emp.email)}/validate`, emp2.token, { ratings: [{ skill_id: react, rating: 3 }] });
+  check('colleague cannot validate', r.s === 403, r);
+  r = await put(`${P}/skills/employee/${encodeURIComponent(emp.email)}/validate`, mgr.token, { ratings: [{ skill_id: react, rating: 3, comment: 'More hooks practice' }] });
+  check('manager validates / adjusts a rating', r.s === 200, r);
+  r = await get(`${P}/skills/me`, emp.token);
+  const reactRow = r.d?.find(s => s.skill_id === react);
+  check('employee sees self and validated ratings', reactRow?.self_rating === 4 && reactRow.manager_rating === 3 && reactRow.validated === true, r.d);
+  r = await get(`${P}/skills/matrix?scope=team`, mgr.token);
+  const row = r.d?.employees?.find(e => e.email === emp.email);
+  check('team matrix: effective = manager rating, falls back to self', r.s === 200 && row?.ratings?.[react]?.effective === 3 && row.ratings[node].effective === 2 && !r.d.employees.some(e => e.email === emp3.email), r.d);
+  r = await get(`${P}/skills/matrix?scope=all`, mgr.token);
+  check('manager cannot see the org-wide matrix', r.s === 403, r);
+  r = await get(`${P}/skills/matrix?scope=all`, admin);
+  check('admin sees org-wide matrix', r.s === 200 && r.d.employees.some(e => e.email === emp3.email), r.d?.employees?.length);
+  r = await put(`${P}/skills/targets`, mgr.token, { designation: 'Engineer', targets: [{ skill_id: react, level: 4 }] });
+  check('only admins set role targets', r.s === 403, r);
+  r = await put(`${P}/skills/targets`, admin, { designation: 'Engineer', targets: [{ skill_id: react, level: 4 }, { skill_id: node, level: 3 }] });
+  check('admin sets target proficiency per designation', r.s === 200 && r.d.length === 2, r.d);
+  r = await get(`${P}/skills/gaps?scope=my`, emp.token);
+  const myGap = r.d?.employees?.[0];
+  check('skill gap against role targets (react 4-3, node 3-2)', r.s === 200 && myGap?.total_gap === 2 && myGap.gaps.find(g => g.skill_id === react).gap === 1, r.d);
+  r = await get(`${P}/skills/gaps?scope=team`, mgr.token);
+  const emp2Gap = r.d?.employees?.find(e => e.email === emp2.email);
+  check('team gaps include unrated people as zero', emp2Gap?.total_gap === 7 && r.d.by_skill.length === 2, r.d);
+  r = await get(`${P}/skills/gaps?scope=all`, emp.token);
+  check('employee cannot see org-wide gaps', r.s === 403, r);
+  r = await del(`${P}/skills/${node}`, admin);
+  r = await get(`${P}/skills/targets?designation=Engineer`, admin);
+  check('deleting a skill removes its targets', r.s === 200 && r.d.length === 1, r.d);
+
+  // Regression: a manager WITH a non-empty team must still be refused for another team's employee
+  // (guards against `{ email: x, ...teamFilter }` style bugs where the spread overwrites the email).
+  section('PF-4 Cross-team access regression');
+  r = await post(`${P}/goals`, mgr2.token, { cycle_id: cycleId, employee_email: emp3.email, title: 'Sales goal for Rhea', weightage: 100 });
+  const emp3Goal = r.d?.id;
+  check('setup: mgr2 assigns a goal to their report', r.s === 201, r);
+  r = await put(`${P}/goals/${emp3Goal}`, mgr.token, { title: 'hijacked' });
+  check('manager with a team cannot edit another team\'s goal', r.s === 403, r);
+  r = await post(`${P}/goals/${emp3Goal}/check-ins`, mgr.token, { note: 'x' });
+  check('…or check in on it', r.s === 403, r);
+  r = await post(`${P}/goals/review`, mgr.token, { cycle_id: cycleId, employee_email: emp3.email, action: 'approve' });
+  check('…or bulk-review their goals', r.s === 403, r);
+  const emp3Ap = (await get(`${P}/appraisals?scope=all&cycle_id=${cycleId}`, admin)).d?.find(a => a.employee_email === emp3.email)?.id;
+  r = await get(`${P}/appraisals/${emp3Ap}`, mgr.token);
+  check('…or open their appraisal', r.s === 403, r);
+  r = await post(`${P}/pips`, mgr2.token, { ...pipBody, employee_email: emp3.email });
+  const emp3Pip = r.d?.id;
+  r = await get(`${P}/pips/${emp3Pip}`, mgr.token);
+  check('…or see their PIP', r.s === 404, r);
+  r = await post(`${P}/pips/${emp3Pip}/check-ins`, mgr.token, { date: today, note: 'cross-team attempt' });
+  check('…or add a PIP check-in', r.s === 404, r);
+  r = await post(`${P}/one-on-ones`, mgr.token, { employee_email: emp3.email, scheduled_at: new Date(Date.now() + 86400000).toISOString() });
+  check('…or schedule a 1:1 with them', r.s === 403, r);
+  r = await put(`${P}/skills/employee/${encodeURIComponent(emp3.email)}/validate`, mgr.token, { ratings: [{ skill_id: react, rating: 2 }] });
+  check('…or validate their skills', r.s === 403, r);
+  r = await post(`${P}/courses/${sql}/assign`, mgr.token, { employee_emails: [emp3.email] });
+  check('…or assign them a course', r.s === 403, r);
+
+  section('PF-5 People picker');
+  r = await get(`${P}/people`, emp.token);
+  check('people picker returns minimal fields only', r.s === 200 && r.d.people.length >= 7 && !JSON.stringify(r.d).includes('hashed_password') && !('monthly_salary' in r.d.people[0]), r.d?.people?.[0]);
+  r = await get(`${P}/people?scope=team`, mgr.token);
+  check('team picker = direct + department reports', r.d?.people?.length === 2 && r.d.people.every(p => [emp.email, emp2.email].includes(p.email)), r.d);
+});

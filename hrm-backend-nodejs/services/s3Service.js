@@ -24,9 +24,10 @@ const BASE_FOLDER = 'hrms_documents';
  * @param {string} mimeType - File MIME type
  * @param {string} folder - Subfolder (e.g., 'profile_pictures', 'government_ids')
  * @param {string} employeeId - Employee ID for organizing files
+ * @param {{ acl?: 'public-read'|'private' }} [options] - private objects are only reachable via presigned URLs
  * @returns {Promise<{key: string, url: string}>}
  */
-async function uploadFile(fileBuffer, originalName, mimeType, folder, employeeId) {
+async function uploadFile(fileBuffer, originalName, mimeType, folder, employeeId, { acl = 'public-read' } = {}) {
   const ext = path.extname(originalName);
   const uniqueFilename = `${generateUUID()}${ext}`;
   const key = `${BASE_FOLDER}/${folder}/${employeeId}/${uniqueFilename}`;
@@ -36,7 +37,7 @@ async function uploadFile(fileBuffer, originalName, mimeType, folder, employeeId
     Key: key,
     Body: fileBuffer,
     ContentType: mimeType,
-    ACL: 'public-read', // Make file publicly accessible
+    ACL: acl, // 'public-read' unless the caller asked for a private object
   });
 
   await s3Client.send(command);

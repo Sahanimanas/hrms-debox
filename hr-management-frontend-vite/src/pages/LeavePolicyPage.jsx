@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, RefreshCw, AlertCircle, Users, CheckCircle, Plus, Trash2, Calendar, Clock, Ban, ArrowRightLeft } from 'lucide-react';
+import { Save, RefreshCw, AlertCircle, Users, CheckCircle, Plus, Trash2, Calendar, Clock, Ban, ArrowRightLeft, Sparkles, Layers, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,8 @@ const LeavePolicyPage = () => {
   const [applyingToAll, setApplyingToAll] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
   const [activeTab, setActiveTab] = useState('policies');
+  const [missingStandard, setMissingStandard] = useState([]);
+  const [addingStandard, setAddingStandard] = useState(false);
 
   // Default new policy item
   const getDefaultPolicyItem = (order) => ({
@@ -32,7 +34,13 @@ const LeavePolicyPage = () => {
     max_carry_forward_days: 0,
     clubbing_allowed_with: [],
     clubbing_not_allowed_with: [],
-    is_unlimited: false
+    is_unlimited: false,
+    max_encashment_days: 0,
+    event_scope: 'occurrence',
+    max_occurrences_per_year: null,
+    gender_restriction: null,
+    restricted_holiday_only: false,
+    sandwich_rule: false
   });
 
   useEffect(() => {
@@ -44,8 +52,9 @@ const LeavePolicyPage = () => {
     try {
       const response = await api.get('/leaves/leave-policy');
 
-      // Ensure all policies have the new fields
+      // Ensure all policies have the new fields (keep any other saved fields as they are)
       const policies = (response.data.policies || []).map((p, idx) => ({
+        ...p,
         leave_type: p.leave_type || '',
         annual_quota: p.annual_quota ?? 0,
         order: p.order ?? idx + 1,
@@ -57,7 +66,13 @@ const LeavePolicyPage = () => {
         max_carry_forward_days: p.max_carry_forward_days ?? 0,
         clubbing_allowed_with: p.clubbing_allowed_with || [],
         clubbing_not_allowed_with: p.clubbing_not_allowed_with || [],
-        is_unlimited: p.is_unlimited ?? false
+        is_unlimited: p.is_unlimited ?? false,
+        max_encashment_days: p.max_encashment_days ?? 0,
+        event_scope: p.event_scope || 'occurrence',
+        max_occurrences_per_year: p.max_occurrences_per_year ?? null,
+        gender_restriction: p.gender_restriction ?? null,
+        restricted_holiday_only: p.restricted_holiday_only ?? false,
+        sandwich_rule: p.sandwich_rule ?? false
       }));
 
       setPolicy({
@@ -69,6 +84,9 @@ const LeavePolicyPage = () => {
       if (response.data.updated_at) {
         setLastSaved(new Date(response.data.updated_at));
       }
+      api.get('/v2/leave/types')
+        .then((res) => setMissingStandard(res.data?.missing_standard_types || []))
+        .catch(() => setMissingStandard([]));
     } catch (error) {
       console.error('Failed to load leave policy:', error);
       toast.error('Failed to load leave policy');
@@ -147,6 +165,11 @@ const LeavePolicyPage = () => {
     try {
       // Validate policies
       for (const p of policy.policies) {
+        if (p.credit_type === 'event' && !(p.annual_quota > 0)) {
+          toast.error(`Set the number of days for ${p.leave_type}`);
+          setSaving(false);
+          return;
+        }
         if (!p.leave_type.trim()) {
           toast.error('Leave type name cannot be empty');
           setSaving(false);
@@ -168,6 +191,20 @@ const LeavePolicyPage = () => {
       toast.error(error.response?.data?.detail || 'Failed to update leave policy');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAddStandardTypes = async () => {
+    if (!window.confirm(`Add ${missingStandard.join(', ')} to the leave policy? Unsaved edits on this page will be reloaded.`)) return;
+    setAddingStandard(true);
+    try {
+      const response = await api.post('/v2/leave/policy/add-standard-types', {});
+      toast.success(response.data.message);
+      await loadLeavePolicy();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add leave types');
+    } finally {
+      setAddingStandard(false);
     }
   };
 
@@ -229,7 +266,7 @@ const LeavePolicyPage = () => {
   };
 
   const getTotalDays = () => {
-    return policy.policies.reduce((sum, p) => sum + (p.annual_quota || 0), 0);
+    return policy.policies.reduce((sum, p) => sum + (p.credit_type === 'event' ? 0 : (p.annual_quota || 0)), 0);
   };
 
   const getLeaveTypeColors = (index) => {
@@ -256,21 +293,27 @@ const LeavePolicyPage = () => {
   }
 
   return (
-    <div className="p-6 md:p-10 space-y-6">
+    <div className="p-3 sm:p-6 md:p-10 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-bold text-slate-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-slate-900 mb-1 sm:mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
             Leave Policy Settings
           </h1>
-          <p className="text-lg text-slate-600">Configure leave types, credits, and rules</p>
+          <p className="text-sm sm:text-lg text-slate-600">Configure leave types, credits, and rules</p>
           {lastSaved && (
             <p className="text-sm text-slate-500 mt-1">
               Last saved: {lastSaved.toLocaleString()}
             </p>
           )}
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
+          {missingStandard.length > 0 && (
+            <Button variant="outline" onClick={handleAddStandardTypes} disabled={addingStandard} className="gap-2" title={missingStandard.join(', ')}>
+              <Sparkles className="w-4 h-4" />
+              {addingStandard ? 'Adding…' : `Add standard types (${missingStandard.length})`}
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={loadLeavePolicy}
@@ -317,8 +360,8 @@ const LeavePolicyPage = () => {
                   return (
                     <Card key={index} className={`${colors.border} border-2`}>
                       <CardHeader className={`${colors.bg} border-b ${colors.border}`}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                             <Badge className={colors.badge}>#{index + 1}</Badge>
                             <Input
                               type="text"
@@ -339,7 +382,7 @@ const LeavePolicyPage = () => {
                           </Button>
                         </div>
                       </CardHeader>
-                      <CardContent className="p-6 space-y-6">
+                      <CardContent className="p-3 sm:p-6 space-y-6">
                         {/* Unlimited Toggle */}
                         <div className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-amber-50 rounded-lg border-2 border-purple-200">
                           <div>
@@ -366,7 +409,7 @@ const LeavePolicyPage = () => {
                                 value={policyItem.credit_type}
                                 onValueChange={(value) => {
                                   updatePolicy(index, 'credit_type', value);
-                                  if (value === 'annually') {
+                                  if (value !== 'monthly') {
                                     updatePolicy(index, 'monthly_credit', 0);
                                   }
                                 }}
@@ -385,12 +428,19 @@ const LeavePolicyPage = () => {
                                       <span>📆 Annual Credit</span>
                                     </div>
                                   </SelectItem>
+                                  <SelectItem value="event">
+                                    <div className="flex items-center gap-2">
+                                      <span>🎗️ Per event (maternity, bereavement…)</span>
+                                    </div>
+                                  </SelectItem>
                                 </SelectContent>
                               </Select>
                               <p className="text-xs text-slate-500">
                                 {policyItem.credit_type === 'monthly'
                                   ? 'Leaves are credited every month based on joining date'
-                                  : 'Full quota credited at the start of year/joining'}
+                                  : policyItem.credit_type === 'event'
+                                    ? 'Granted when the event happens — no monthly accrual'
+                                    : 'Full quota credited at the start of year/joining'}
                               </p>
                             </div>
 
@@ -409,6 +459,58 @@ const LeavePolicyPage = () => {
                                   />
                                   <p className="text-xs text-slate-500">
                                     Annual quota: {(policyItem.monthly_credit || 0) * 12} days/year
+                                  </p>
+                                </>
+                              ) : policyItem.credit_type === 'event' ? (
+                                <>
+                                  <Label className="text-base font-semibold">Days granted</Label>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      step="0.5"
+                                      value={policyItem.annual_quota}
+                                      onChange={(e) => updatePolicy(index, 'annual_quota', parseFloat(e.target.value) || 0)}
+                                      className="bg-white"
+                                    />
+                                    <Select value={policyItem.event_scope || 'occurrence'} onValueChange={(v) => updatePolicy(index, 'event_scope', v)}>
+                                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="occurrence">per occurrence</SelectItem>
+                                        <SelectItem value="year">per year</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <Label className="text-xs text-slate-600">Max times per year</Label>
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        placeholder="No limit"
+                                        value={policyItem.max_occurrences_per_year ?? ''}
+                                        onChange={(e) => updatePolicy(index, 'max_occurrences_per_year', parseInt(e.target.value, 10) > 0 ? parseInt(e.target.value, 10) : null)}
+                                        className="bg-white mt-1"
+                                        disabled={(policyItem.event_scope || 'occurrence') !== 'occurrence'}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs text-slate-600">Only for</Label>
+                                      <Select value={policyItem.gender_restriction || 'any'} onValueChange={(v) => updatePolicy(index, 'gender_restriction', v === 'any' ? null : v)}>
+                                        <SelectTrigger className="bg-white mt-1"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="any">Everyone</SelectItem>
+                                          <SelectItem value="female">Female employees</SelectItem>
+                                          <SelectItem value="male">Male employees</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  </div>
+                                  <p className="text-xs text-slate-500">
+                                    {(policyItem.event_scope || 'occurrence') === 'occurrence'
+                                      ? `Up to ${policyItem.annual_quota} days each time; no running balance`
+                                      : `${policyItem.annual_quota} days each year, reset in January`}
+                                    {policyItem.gender_restriction ? ' · checked when the employee record has a gender' : ''}
                                   </p>
                                 </>
                               ) : (
@@ -464,10 +566,52 @@ const LeavePolicyPage = () => {
                                 className="bg-white"
                               />
                               <p className="text-xs text-slate-500">
-                                Maximum days that can be carried to next year
+                                Maximum days that can be carried to next year (0 = no cap). The excess is encashed if encashment is allowed, otherwise it lapses.
                               </p>
                             </div>
                           )}
+
+                          {policyItem.encashment_allowed && !policyItem.is_unlimited && (
+                            <div className="space-y-3">
+                              <Label className="text-base font-semibold">Max Encashment at Year-End (days)</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                value={policyItem.max_encashment_days ?? 0}
+                                onChange={(e) => updatePolicy(index, 'max_encashment_days', parseFloat(e.target.value) || 0)}
+                                className="bg-white"
+                              />
+                              <p className="text-xs text-slate-500">0 = no cap. Paid at basic ÷ 26 per day through payroll.</p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Sandwich rule & restricted holidays (LV-2 / LV-3) */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="flex items-center justify-between gap-3 p-4 bg-slate-50 rounded-lg">
+                            <div>
+                              <Label className="font-medium flex items-center gap-1.5"><Layers className="w-4 h-4" /> Sandwich Rule</Label>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Weekly offs and holidays between two leave days are counted as leave
+                              </p>
+                            </div>
+                            <Switch
+                              checked={policyItem.sandwich_rule || false}
+                              onCheckedChange={(checked) => updatePolicy(index, 'sandwich_rule', checked)}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-3 p-4 bg-slate-50 rounded-lg">
+                            <div>
+                              <Label className="font-medium flex items-center gap-1.5"><Star className="w-4 h-4" /> Optional Holidays Only</Label>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Can only be taken on holidays marked optional / restricted
+                              </p>
+                            </div>
+                            <Switch
+                              checked={policyItem.restricted_holiday_only || false}
+                              onCheckedChange={(checked) => updatePolicy(index, 'restricted_holiday_only', checked)}
+                            />
+                          </div>
                         </div>
 
                         {/* Toggles - Only show if not unlimited */}
@@ -686,6 +830,7 @@ const LeavePolicyPage = () => {
                 <div className="p-4 bg-slate-50 rounded-lg">
                   <p className="text-sm text-slate-500">Total Annual Days</p>
                   <p className="text-2xl font-bold text-slate-900">{getTotalDays()}</p>
+                  <p className="text-[11px] text-slate-400">excludes per-event types</p>
                 </div>
                 <div className="p-4 bg-slate-50 rounded-lg">
                   <p className="text-sm text-slate-500">Monthly Credit Types</p>
@@ -709,10 +854,12 @@ const LeavePolicyPage = () => {
                       <div className="flex items-center justify-between">
                         <div>
                           <span className={`font-medium ${colors.text}`}>{p.leave_type}</span>
-                          <div className="flex gap-2 mt-1">
+                          <div className="flex flex-wrap gap-2 mt-1">
                             <Badge variant="outline" className="text-xs">
-                              {p.credit_type === 'monthly' ? `${p.monthly_credit}/month` : `${p.annual_quota}/year`}
+                              {p.credit_type === 'monthly' ? `${p.monthly_credit}/month` : p.credit_type === 'event' ? `${p.annual_quota}/${(p.event_scope || 'occurrence') === 'occurrence' ? 'occurrence' : 'year'}` : `${p.annual_quota}/year`}
                             </Badge>
+                            {p.sandwich_rule && <Badge variant="outline" className="text-xs">Sandwich</Badge>}
+                            {p.restricted_holiday_only && <Badge variant="outline" className="text-xs">Optional holidays</Badge>}
                             {p.advance_days_required > 0 && (
                               <Badge variant="outline" className="text-xs">
                                 {p.advance_days_required}d advance

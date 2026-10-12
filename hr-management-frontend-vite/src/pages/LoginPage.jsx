@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,21 +7,72 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, ShieldCheck, ArrowLeft } from 'lucide-react';
 import api from '@/lib/api';
 import { setAuth, isAuthenticated } from '@/lib/auth';
+import { useT } from '@/lib/i18n';
+import BrandLogo from '@/components/BrandLogo';
+import SsoButtons from '@/modules/platform/components/SsoButtons';
+import LanguageSwitcher from '@/modules/platform/components/LanguageSwitcher';
+import WorkspaceChooser from '@/components/WorkspaceChooser';
+import { WORKSPACES, getWorkspace, setWorkspace, workspaceHome } from '@/lib/workspace';
+
+// Inline field error
+const ErrorMessage = ({ message }) => {
+  if (!message) return null;
+  return (
+    <div className="flex items-center gap-1.5 mt-1.5 text-red-600">
+      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+      <span className="text-sm">{message}</span>
+    </div>
+  );
+};
+
+// Message left by the API client when a session ended (e.g. account deactivated)
+const readNotice = () => {
+  try {
+    const notice = sessionStorage.getItem('login-notice');
+    sessionStorage.removeItem('login-notice');
+    return notice;
+  } catch {
+    return null;
+  }
+};
+
+// Default sign-in for both Xeno HR and Xeno PM (one shared account). Development
+// builds only, so credentials never ship in a production bundle; values come
+// from VITE_DEFAULT_LOGIN_* (.env.development.local), else the seedAdmin.js admin.
+const DEFAULT_LOGIN = import.meta.env.DEV
+  ? {
+    email: import.meta.env.VITE_DEFAULT_LOGIN_EMAIL || 'admin@debox.com',
+    password: import.meta.env.VITE_DEFAULT_LOGIN_PASSWORD || 'Admin@123',
+  }
+  : { email: '', password: '' };
+
+// Workspace preselected by a deep link (/login?app=pm); otherwise the user picks one first
+const readAppParam = () => {
+  const app = new URLSearchParams(window.location.search).get('app');
+  return WORKSPACES[app] ? app : null;
+};
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const t = useT();
+  const [workspace, setChosenWorkspace] = useState(readAppParam);
+  const [lastUsed] = useState(getWorkspace);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showRegPassword, setShowRegPassword] = useState(false);
+  const [notice] = useState(readNotice);
+
+  // Two-factor step (PL-3): { challenge_token } after a password or SSO sign-in
+  const [twoFactor, setTwoFactor] = useState(() => location.state?.twoFactor || null);
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState('');
 
   // Login form state
-  const [loginForm, setLoginForm] = useState({
-    email: '',
-    password: '',
-  });
+  const [loginForm, setLoginForm] = useState(DEFAULT_LOGIN);
 
   // Login error state
   const [loginErrors, setLoginErrors] = useState({
@@ -51,7 +102,7 @@ const LoginPage = () => {
 
   useEffect(() => {
     if (isAuthenticated()) {
-      navigate('/');
+      navigate(workspaceHome());
     }
   }, [navigate]);
 
@@ -72,6 +123,50 @@ const LoginPage = () => {
     }
   };
 
+  // Remembered right away so an SSO round-trip lands in the chosen app too
+  const chooseWorkspace = (key) => {
+    setWorkspace(key);
+    setChosenWorkspace(key);
+  };
+
+  // Password, SSO and 2FA all end here with the backend's login response
+  const handleLoginResult = (data) => {
+    if (data?.two_factor_required) {
+      setTwoFactor({ challenge_token: data.challenge_token });
+      setCode('');
+      setCodeError('');
+      return;
+    }
+    setAuth(data.access_token, data.user);
+    toast.success(t('Login successful!'));
+    navigate(data.two_factor_setup_required ? '/security' : workspaceHome(workspace || getWorkspace()));
+  };
+
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    if (!code.trim()) {
+      setCodeError(t('Verification code'));
+      return;
+    }
+    setLoading(true);
+    setCodeError('');
+    try {
+      const response = await api.post('/auth/2fa/verify', { challenge_token: twoFactor.challenge_token, code: code.trim() });
+      handleLoginResult(response.data);
+    } catch (error) {
+      const data = error.response?.data;
+      if (data?.error_code === 'INVALID_2FA_CODE') {
+        setCodeError(`${data.detail}${typeof data.attempts_left === 'number' ? ` (${data.attempts_left} attempts left)` : ''}`);
+      } else {
+        // Expired / locked challenge: start again
+        toast.error(data?.detail || 'Verification failed');
+        setTwoFactor(null);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -79,10 +174,7 @@ const LoginPage = () => {
 
     try {
       const response = await api.post('/auth/login', loginForm);
-      const { access_token, user } = response.data;
-      setAuth(access_token, user);
-      toast.success('Login successful!');
-      navigate('/');
+      handleLoginResult(response.data);
     } catch (error) {
       const errorData = error.response?.data;
       const errorCode = errorData?.error_code;
@@ -125,7 +217,7 @@ const LoginPage = () => {
       const { access_token, user } = response.data;
       setAuth(access_token, user);
       toast.success('Registration successful!');
-      navigate('/');
+      navigate(workspaceHome(workspace));
     } catch (error) {
       const errorData = error.response?.data;
       let errorMessage = 'Registration failed';
@@ -171,31 +263,80 @@ const LoginPage = () => {
     }
   };
 
-  // Error message component
-  const ErrorMessage = ({ message }) => {
-    if (!message) return null;
-    return (
-      <div className="flex items-center gap-1.5 mt-1.5 text-red-600">
-        <AlertCircle className="w-4 h-4 flex-shrink-0" />
-        <span className="text-sm">{message}</span>
-      </div>
-    );
-  };
-
   return (
     <div className="min-h-screen flex">
       {/* Left Side - Form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-white">
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 bg-white">
         <div className="w-full max-w-md">
-          <div className="mb-8">
-            <img src="/logo_debox_tagline-w.png" alt="DeBox" className="h-16 w-auto mb-4" />
-            <p className="text-lg text-slate-600">Employee Leave Management System</p>
+          <div className="mb-8 flex items-start justify-between gap-4">
+            <div>
+              <BrandLogo size="lg" tone="dark" product={workspace || 'hr'} className="mb-4" />
+              <p className="text-base sm:text-lg text-slate-600">{t(workspace ? WORKSPACES[workspace].tagline : 'HR & Project Management Suite')}</p>
+            </div>
+            <LanguageSwitcher tone="light" className="w-28 shrink-0 mt-2" />
           </div>
 
+          {notice && !twoFactor && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-sm">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {notice}
+            </div>
+          )}
+
+          {twoFactor ? (
+            <Card>
+              <CardContent className="pt-6">
+                <form onSubmit={handleVerify} className="space-y-4" data-testid="two-factor-form">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-5 h-5 text-yellow-400" />
+                    </div>
+                    <div>
+                      <h2 className="font-semibold text-slate-900">{t('Two-factor verification')}</h2>
+                      <p className="text-xs text-slate-500">{t('Enter the 6-digit code from your authenticator app, or one of your backup codes.')}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="two-factor-code">{t('Verification code')}</Label>
+                    <Input
+                      id="two-factor-code"
+                      data-testid="two-factor-code-input"
+                      value={code}
+                      onChange={(e) => { setCode(e.target.value); setCodeError(''); }}
+                      autoComplete="one-time-code"
+                      inputMode="text"
+                      autoFocus
+                      maxLength={32}
+                      placeholder="123456"
+                      className={`mt-1 text-center tracking-[0.3em] text-lg ${codeError ? 'border-red-500' : ''}`}
+                    />
+                    <ErrorMessage message={codeError} />
+                  </div>
+                  <Button type="submit" data-testid="two-factor-submit-btn" className="w-full bg-slate-800 hover:bg-slate-900 rounded-full" disabled={loading}>
+                    {loading ? t('Verifying...') : t('Verify')}
+                  </Button>
+                  <button type="button" onClick={() => setTwoFactor(null)} className="w-full flex items-center justify-center gap-1 text-sm text-slate-500 hover:text-slate-800">
+                    <ArrowLeft className="w-4 h-4" /> {t('Back to sign in')}
+                  </button>
+                </form>
+              </CardContent>
+            </Card>
+          ) : !workspace ? (
+            <WorkspaceChooser onChoose={chooseWorkspace} lastUsed={lastUsed} />
+          ) : (
+          <>
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
+            <p className="text-sm text-slate-600 min-w-0 truncate">
+              {t('Signing in to')} <span className="font-semibold text-slate-900">{WORKSPACES[workspace].name}</span>
+            </p>
+            <button type="button" data-testid="change-workspace-btn" onClick={() => setChosenWorkspace(null)} className="shrink-0 flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900">
+              <ArrowLeft className="w-3.5 h-3.5" /> {t('Change')}
+            </button>
+          </div>
           <Tabs defaultValue={new URLSearchParams(window.location.search).get('tab') === 'register' ? 'register' : 'login'} className="w-full">
             <TabsList className="grid w-full grid-cols-1 mb-6">
-              <TabsTrigger value="login" data-testid="login-tab">Login</TabsTrigger>
-              <TabsTrigger value="register" data-testid="register-tab">Register</TabsTrigger>
+              <TabsTrigger value="login" data-testid="login-tab">{t('Login')}</TabsTrigger>
+              <TabsTrigger value="register" data-testid="register-tab">{t('Register')}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="login">
@@ -213,7 +354,7 @@ const LoginPage = () => {
                     )}
 
                     <div>
-                      <Label htmlFor="login-email">Email</Label>
+                      <Label htmlFor="login-email">{t('Email')}</Label>
                       <Input
                         id="login-email"
                         data-testid="login-email-input"
@@ -228,7 +369,7 @@ const LoginPage = () => {
                     </div>
 
                     <div>
-                      <Label htmlFor="login-password">Password</Label>
+                      <Label htmlFor="login-password">{t('Password')}</Label>
                       <div className="relative mt-1">
                         <Input
                           id="login-password"
@@ -251,15 +392,22 @@ const LoginPage = () => {
                       <ErrorMessage message={loginErrors.password} />
                     </div>
 
+                    <div className="flex justify-end -mt-2">
+                      <Link to="/forgot-password" className="text-xs text-slate-500 hover:text-slate-800">{t('Forgot password?')}</Link>
+                    </div>
+
                     <Button
                       type="submit"
                       data-testid="login-submit-btn"
                       className="w-full bg-slate-800 hover:bg-slate-900 rounded-full"
                       disabled={loading}
                     >
-                      {loading ? 'Logging in...' : 'Login'}
+                      {loading ? t('Logging in...') : t('Login')}
                     </Button>
                   </form>
+                  <div className="mt-4">
+                    <SsoButtons onResult={handleLoginResult} disabled={loading} />
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -279,7 +427,7 @@ const LoginPage = () => {
                     )}
 
                     <div>
-                      <Label htmlFor="reg-name">Full Name</Label>
+                      <Label htmlFor="reg-name">{t('Full Name')}</Label>
                       <Input
                         id="reg-name"
                         data-testid="register-name-input"
@@ -293,7 +441,7 @@ const LoginPage = () => {
                     </div>
 
                     <div>
-                      <Label htmlFor="reg-email">Email</Label>
+                      <Label htmlFor="reg-email">{t('Email')}</Label>
                       <Input
                         id="reg-email"
                         data-testid="register-email-input"
@@ -308,7 +456,7 @@ const LoginPage = () => {
                     </div>
 
                     <div>
-                      <Label htmlFor="reg-password">Password</Label>
+                      <Label htmlFor="reg-password">{t('Password')}</Label>
                       <div className="relative mt-1">
                         <Input
                           id="reg-password"
@@ -333,7 +481,7 @@ const LoginPage = () => {
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label htmlFor="reg-department">Department</Label>
+                        <Label htmlFor="reg-department">{t('Department')}</Label>
                         <Input
                           id="reg-department"
                           data-testid="register-department-input"
@@ -346,7 +494,7 @@ const LoginPage = () => {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="reg-designation">Designation</Label>
+                        <Label htmlFor="reg-designation">{t('Designation')}</Label>
                         <Input
                           id="reg-designation"
                           data-testid="register-designation-input"
@@ -361,7 +509,7 @@ const LoginPage = () => {
                     </div>
 
                     <div>
-                      <Label htmlFor="reg-role">Role</Label>
+                      <Label htmlFor="reg-role">{t('Role')}</Label>
                       <Select
                         value={registerForm.role}
                         onValueChange={(value) => handleRegisterChange('role', value)}
@@ -415,6 +563,8 @@ const LoginPage = () => {
               </Card>
             </TabsContent>
           </Tabs>
+          </>
+          )}
         </div>
       </div>
 
