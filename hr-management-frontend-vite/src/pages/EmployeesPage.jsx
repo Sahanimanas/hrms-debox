@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, User, Mail, Phone, Briefcase, Edit2, Search, Filter, Calendar, History, Download } from 'lucide-react';
+import { Plus, User, Mail, Phone, Briefcase, Edit2, Search, Filter, Calendar, History, Download, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -36,6 +36,8 @@ const EmployeesPage = () => {
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [organizations, setOrganizations] = useState([]);
   const [lifecycleUid, setLifecycleUid] = useState(null);
+  const [resetTargets, setResetTargets] = useState(null);
+  const [sendingReset, setSendingReset] = useState(false);
 
   const [employeeForm, setEmployeeForm] = useState({
     email: '',
@@ -206,6 +208,34 @@ const EmployeesPage = () => {
       toast.error(errorMessage);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSendPasswordReset = async () => {
+    setSendingReset(true);
+    try {
+      const response = await api.post('/password-reset/admin/send', {
+        employee_ids: resetTargets.map(emp => emp.id)
+      });
+      const { sent = [], failed = [], skipped = [] } = response.data;
+      if (sent.length) {
+        toast.success(
+          sent.length === 1
+            ? `Password reset email sent to ${sent[0].email}`
+            : `Password reset emails sent to ${sent.length} employees`
+        );
+      }
+      if (failed.length) {
+        toast.error(`Could not send to ${failed.map(f => f.email).join(', ')}. Check the mail configuration.`);
+      }
+      if (skipped.length) {
+        toast.warning(`Skipped ${skipped.length} employee(s) (exited or missing email)`);
+      }
+      setResetTargets(null);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to send password reset emails');
+    } finally {
+      setSendingReset(false);
     }
   };
 
@@ -724,6 +754,17 @@ const EmployeesPage = () => {
           <Download className="w-4 h-4" />
           Export CSV
         </Button>
+        {user?.role === 'admin' && (
+          <Button
+            variant="outline"
+            className="gap-2 sm:order-last"
+            disabled={!filteredEmployees.some(emp => emp.employment_status !== 'exited')}
+            onClick={() => setResetTargets(filteredEmployees.filter(emp => emp.employment_status !== 'exited'))}
+          >
+            <KeyRound className="w-4 h-4" />
+            Send Reset Emails
+          </Button>
+        )}
         <div className="flex-1">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-4 h-4" />
@@ -830,6 +871,18 @@ const EmployeesPage = () => {
                 >
                   <History className="w-4 h-4" />
                 </Button>
+                {user?.role === 'admin' && employee.employment_status !== 'exited' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setResetTargets([employee])}
+                    className="text-slate-500 hover:text-slate-700"
+                    title="Send password reset email"
+                    aria-label="Send password reset email"
+                  >
+                    <KeyRound className="w-4 h-4" />
+                  </Button>
+                )}
                 {user?.role === 'admin' && (
                   <Button
                     variant="ghost"
@@ -932,6 +985,46 @@ const EmployeesPage = () => {
         onOpenChange={(o) => { if (!o) setLifecycleUid(null); }}
         isAdmin={user?.role === 'admin'}
       />
+
+      {/* Admin-triggered password reset */}
+      <Dialog open={!!resetTargets} onOpenChange={(o) => { if (!o && !sendingReset) setResetTargets(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Password Reset Email</DialogTitle>
+          </DialogHeader>
+          {resetTargets && (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                {resetTargets.length === 1 ? (
+                  <>A link to set a new password will be emailed to <strong>{resetTargets[0].full_name}</strong> ({resetTargets[0].email}).</>
+                ) : (
+                  <>A link to set a new password will be emailed to <strong>{resetTargets.length} employees</strong>.</>
+                )}
+                {' '}The link is single-use and expires in 24 hours. Their current password keeps working until they set a new one.
+              </p>
+              {resetTargets.length > 1 && (
+                <ul className="text-sm text-slate-600 max-h-40 overflow-y-auto border border-slate-200 rounded-md p-2 space-y-1">
+                  {resetTargets.map(emp => (
+                    <li key={emp.id} className="truncate">{emp.full_name} <span className="text-slate-400">· {emp.email}</span></li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setResetTargets(null)} disabled={sendingReset}>
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-slate-800 hover:bg-slate-900"
+                  onClick={handleSendPasswordReset}
+                  disabled={sendingReset}
+                >
+                  {sendingReset ? 'Sending...' : resetTargets.length === 1 ? 'Send Email' : `Send ${resetTargets.length} Emails`}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

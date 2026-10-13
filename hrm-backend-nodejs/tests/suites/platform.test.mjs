@@ -880,6 +880,31 @@ await run(async () => {
     entries = await auditFind({ action: 'auth.password_reset.requested', actor_email: emp.email });
     check('password reset request logged', entries.length >= 1, entries.length);
 
+    // Admin-triggered password reset emails
+    const resetee = await createUser(admin, { role: 'employee', name: 'Rita Reset', department: 'Sales' });
+    await post('/password-reset/request', null, { email: resetee.email.toUpperCase() });
+    let resetTokens = await withDb(db => db.collection('password_reset_tokens').find({ email: resetee.email }).toArray());
+    check('self-service reset matches the email case-insensitively', resetTokens.length === 1 && !resetTokens[0].used, resetTokens.length);
+    r = await post('/password-reset/admin/send', emp.token, { employee_ids: [resetee.employee_id] });
+    check('admin reset send is admin-only', r.s === 403, r.s);
+    r = await post('/password-reset/admin/send', admin, { employee_ids: [] });
+    check('admin reset send rejects an empty list', r.s === 400, r.s);
+    r = await post('/password-reset/admin/send', admin, { employee_ids: [resetee.employee_id, 'NO-SUCH-EMP'] });
+    check('admin reset send reports per-employee outcome (mail blanked → failed)', r.s === 200 && r.d.failed.some(f => f.employee_id === resetee.employee_id) && r.d.skipped.some(s => s.employee_id === 'NO-SUCH-EMP' && s.reason === 'not_found'), r.d);
+    resetTokens = await withDb(db => db.collection('password_reset_tokens').find({ email: resetee.email }).sort({ created_at: -1 }).toArray());
+    const adminToken = resetTokens[0];
+    check('admin reset issues a fresh token and invalidates the earlier one', resetTokens.length === 2 && adminToken.initiated_by === ADMIN_EMAIL && !adminToken.used && resetTokens[1].used, resetTokens.map(t => ({ used: t.used, by: t.initiated_by })));
+    r = await get(`/password-reset/validate/${adminToken.token}`, null);
+    check('admin-issued reset link validates', r.s === 200 && r.d.email === resetee.email, r.d);
+    r = await post('/password-reset/reset', null, { token: adminToken.token, new_password: 'NewPass@456' });
+    check('admin-issued reset link sets a new password', r.s === 200, r.d);
+    r = await post('/auth/login', null, { email: resetee.email, password: 'NewPass@456' });
+    check('employee can log in with the new password', r.s === 200 && !!r.d.access_token, r.s);
+    r = await post('/password-reset/reset', null, { token: adminToken.token, new_password: 'Another@789' });
+    check('reset link is single-use', r.s === 400, r.s);
+    entries = await auditFind({ action: 'auth.password_reset.admin_sent', actor_email: resetee.email });
+    check('admin reset send audited', entries.length >= 1, entries.length);
+
     // Anonymous-by-design routes (engagement grievances / suggestions / survey responses)
     check('anonymous route patterns match the engagement endpoints', [
       ['POST', '/api/v2/engagement/grievances'],
