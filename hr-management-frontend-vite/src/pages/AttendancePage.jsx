@@ -336,7 +336,7 @@ const AttendancePage = () => {
               Export CSV
             </Button>
 
-            <Button onClick={handleDownloadXLSX} disabled={downloading} className="bg-slate-800 hover:bg-slate-900">
+            <Button onClick={handleDownloadXLSX} disabled={downloading}>
               <Download className="w-4 h-4 mr-2" />
               {downloading ? 'Downloading...' : 'Download XLSX'}
             </Button>

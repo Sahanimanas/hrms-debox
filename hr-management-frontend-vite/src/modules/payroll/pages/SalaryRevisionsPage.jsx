@@ -105,7 +105,7 @@ export default function SalaryRevisionsPage() {
       actions={(
         <>
           <Button variant="outline" onClick={exportRows} disabled={!revisions.length} className="gap-2 h-9 sm:h-10"><Download className="w-4 h-4" /> Export CSV</Button>
-          <Button onClick={() => { setForm({ employee_uid: '', effective_from: currentMonth(), reason: '', basic_salary: '' }); setComponents(DEFAULT_COMPONENTS); setShow(true); }} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9 sm:h-10"><Plus className="w-4 h-4" /> Revise salary</Button>
+          <Button onClick={() => { setForm({ employee_uid: '', effective_from: currentMonth(), reason: '', basic_salary: '' }); setComponents(DEFAULT_COMPONENTS); setShow(true); }} className="gap-2 h-9 sm:h-10"><Plus className="w-4 h-4" /> Revise salary</Button>
         </>
       )}
     >
@@ -169,7 +169,7 @@ export default function SalaryRevisionsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShow(false)}>Cancel</Button>
-            <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save revision'}</Button>
+            <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save revision'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

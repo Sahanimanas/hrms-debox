@@ -198,7 +198,7 @@ export default function SprintsTab({ project, tasks, sprints, editable, onOpen, 
           )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDialog(null)}>Cancel</Button>
-            <Button onClick={submit} className="bg-slate-800 hover:bg-slate-900">{{ create: 'Create', edit: 'Save', start: 'Start sprint', complete: 'Complete sprint' }[dialog?.mode]}</Button>
+            <Button onClick={submit}>{{ create: 'Create', edit: 'Save', start: 'Start sprint', complete: 'Complete sprint' }[dialog?.mode]}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

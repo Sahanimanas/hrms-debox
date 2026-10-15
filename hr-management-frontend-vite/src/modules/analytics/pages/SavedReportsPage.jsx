@@ -120,7 +120,7 @@ const SavedReportsPage = () => {
             <Download className="w-4 h-4" /> Export CSV
           </Button>
           {isAdmin && (
-            <Button className="bg-slate-800 hover:bg-slate-900 gap-2 h-9 text-xs sm:text-sm" onClick={() => navigate('/analytics/reports/new')}>
+            <Button className="gap-2 h-9 text-xs sm:text-sm" onClick={() => navigate('/analytics/reports/new')}>
               <Plus className="w-4 h-4" /> New report
             </Button>
           )}

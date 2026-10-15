@@ -38,17 +38,17 @@ const SidebarNav = ({ items, isActive, onNavigate, compact = false }) => {
     .filter(g => g.items.length);
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-1">
       {groups.map(({ section, items: sectionItems }) => {
         const containsActive = sectionItems.some(i => isActive(i.href));
         const open = section === 'Overview' || containsActive || !collapsed.has(section);
         return (
-          <div key={section}>
+          <div key={section} className="flex flex-col gap-0.5">
             {section !== 'Overview' && (
               <button
                 type="button"
                 onClick={() => toggle(section)}
-                className="w-full flex items-center justify-between px-3 mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300"
+                className="w-full flex items-center justify-between px-3 pt-2.5 pb-1.5 text-[11px] leading-[14px] font-semibold uppercase tracking-[0.06em] text-navy-text/75 hover:text-white"
                 aria-expanded={open}
               >
                 {t(section)}
@@ -56,7 +56,7 @@ const SidebarNav = ({ items, isActive, onNavigate, compact = false }) => {
               </button>
             )}
             {open && (
-              <div className="space-y-0.5">
+              <div className="flex flex-col gap-0.5">
                 {sectionItems.map((item) => {
                   const Icon = item.icon;
                   const active = isActive(item.href);
@@ -66,12 +66,12 @@ const SidebarNav = ({ items, isActive, onNavigate, compact = false }) => {
                       to={item.href}
                       onClick={onNavigate}
                       data-testid={`nav-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
-                      className={`flex items-center px-3 ${compact ? 'py-2' : 'py-2.5'} text-sm font-medium rounded-lg transition-colors ${active
-                        ? 'bg-yellow-400 text-slate-900'
-                        : 'text-slate-300 hover:bg-slate-800 hover:text-yellow-400'
+                      className={`flex items-center gap-3 px-3 ${compact ? 'h-10' : 'h-11'} text-sm leading-5 rounded-md transition-colors ${active
+                        ? 'bg-brand text-brand-on font-semibold'
+                        : 'text-navy-text font-medium hover:bg-navy-hover hover:text-white'
                         }`}
                     >
-                      <Icon className="w-[18px] h-[18px] mr-3 flex-shrink-0" />
+                      <Icon className="w-[18px] h-[18px] flex-shrink-0" />
                       <span className="truncate">{t(item.name)}</span>
                     </Link>
                   );

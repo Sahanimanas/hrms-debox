@@ -6,6 +6,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import PhoneInput from '@/components/PhoneInput';
+import { phoneError } from '@/lib/phone';
 import { Field, NativeSelect, FilePicker } from './FormBits';
 import { API, SOURCE_LABELS, STAGE_LABELS, errorMessage, parseResumeInto, resumeProblem } from '../lib';
 
@@ -60,6 +62,8 @@ export default function AddCandidateDialog({ open, onClose, onSaved, jobs = [], 
     if (!form.job_id) return toast.error('Choose a job');
     if (form.name.trim().length < 2) return toast.error('Enter the candidate name');
     if (!form.email.trim()) return toast.error('Enter an email');
+    const phoneProblem = phoneError(form.phone);
+    if (phoneProblem) return toast.error(phoneProblem);
     if (file) {
       const problem = resumeProblem(file);
       if (problem) return toast.error(problem);
@@ -112,7 +116,7 @@ export default function AddCandidateDialog({ open, onClose, onSaved, jobs = [], 
               </div>
             </div>
           )}
-          <Field id="ac-phone" label="Phone"><Input id="ac-phone" value={form.phone} onChange={setInput('phone')} maxLength={20} /></Field>
+          <Field id="ac-phone" label="Phone"><PhoneInput id="ac-phone" value={form.phone} onChange={set('phone')} /></Field>
           <Field id="ac-li" label="LinkedIn URL"><Input id="ac-li" value={form.linkedin_url} onChange={setInput('linkedin_url')} maxLength={300} placeholder="https://www.linkedin.com/in/…" /></Field>
           <Field id="ac-source" label="Source">
             <NativeSelect id="ac-source" value={form.source} onChange={set('source')}
@@ -124,7 +128,7 @@ export default function AddCandidateDialog({ open, onClose, onSaved, jobs = [], 
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} disabled={saving || parsing} className="bg-slate-800 hover:bg-slate-900 gap-1">
+          <Button onClick={save} disabled={saving || parsing} className="gap-1">
             {parsing ? <><Sparkles className="w-4 h-4" /> Reading…</> : saving ? 'Saving…' : 'Add candidate'}
           </Button>
         </DialogFooter>

@@ -151,7 +151,7 @@ function GiveKudosDialog({ onClose, onSent }) {
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button className="bg-slate-800 hover:bg-slate-900" onClick={send} disabled={sending}>{sending ? 'Sending…' : 'Send kudos'}</Button>
+          <Button onClick={send} disabled={sending}>{sending ? 'Sending…' : 'Send kudos'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -210,7 +210,7 @@ function ValuesDialog({ onClose }) {
         )}
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button className="bg-slate-800 hover:bg-slate-900" onClick={save} disabled={saving || loading}>Save</Button>
+          <Button onClick={save} disabled={saving || loading}>Save</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -661,7 +661,7 @@ const AllLeavesPage = () => {
                 </Button>
                 <Button
                   onClick={handleUpdateLeave}
-                  className="flex-1 bg-slate-800 hover:bg-slate-900"
+                  className="flex-1"
                   disabled={editDates.length === 0}
                 >
                   Save Changes ({editDates.length} day{editDates.length !== 1 ? 's' : ''})

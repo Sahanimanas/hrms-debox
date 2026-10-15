@@ -100,7 +100,7 @@ const TeamCalendarPage = () => {
   const selectedEntries = selectedDay ? byDay[selectedDay] || [] : [];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

@@ -103,7 +103,7 @@ const ExitInterviewForm = ({ onSubmitted }) => {
           </div>
         ))}
         <div className="flex justify-end">
-          <Button onClick={submit} disabled={saving} className="bg-slate-800 hover:bg-slate-900 w-full sm:w-auto">{saving ? 'Submitting…' : 'Submit exit interview'}</Button>
+          <Button onClick={submit} disabled={saving} className="w-full sm:w-auto">{saving ? 'Submitting…' : 'Submit exit interview'}</Button>
         </div>
       </div>
     </SectionCard>

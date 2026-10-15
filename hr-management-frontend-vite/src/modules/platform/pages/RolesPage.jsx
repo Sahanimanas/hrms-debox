@@ -118,7 +118,7 @@ const RoleDialog = ({ open, role, catalog, onClose, onSaved }) => {
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={saving || form.name.trim().length < 2} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save role'}</Button>
+            <Button type="submit" disabled={saving || form.name.trim().length < 2}>{saving ? 'Saving…' : 'Save role'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -213,7 +213,7 @@ const RolesPage = () => {
   return (
     <PageShell>
       <PageHeader icon={ShieldHalf} title="Roles & Permissions" subtitle="Custom roles, fine-grained permissions and who has them">
-        <Button onClick={() => setDialog({ open: true, role: null })} className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto">
+        <Button onClick={() => setDialog({ open: true, role: null })} className="gap-2 w-full sm:w-auto">
           <Plus className="w-4 h-4" /> New role
         </Button>
       </PageHeader>

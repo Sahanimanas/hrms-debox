@@ -7,6 +7,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import PhoneInput from '@/components/PhoneInput';
+import { phoneError } from '@/lib/phone';
 import { PageShell, PageHeader, LoadingState, EmptyState, ErrorState } from '../components/Common';
 import { Field, NativeSelect, FilePicker } from '../components/FormBits';
 import { API, EMPLOYMENT_TYPE_LABELS, WORK_MODE_LABELS, errorMessage, label, parseResumeInto, resumeProblem } from '../lib';
@@ -50,6 +52,8 @@ export default function ReferPage() {
     e.preventDefault();
     if (!jobId) return toast.error('Choose a role');
     if (form.name.trim().length < 2 || !form.email.trim()) return toast.error("Enter your referral's name and email");
+    const phoneProblem = phoneError(form.phone);
+    if (phoneProblem) return toast.error(phoneProblem);
     const problem = resumeProblem(file);
     if (problem) return toast.error(problem);
     const body = new FormData();
@@ -85,7 +89,7 @@ export default function ReferPage() {
             <p className="text-sm text-slate-600 mt-1">{done.name} has been referred for {done.job_title}. You can follow their progress in My Referrals.</p>
             <div className="mt-5 flex justify-center gap-2">
               <Button variant="outline" onClick={() => setDone(null)}>Refer someone else</Button>
-              <Button asChild className="bg-slate-800 hover:bg-slate-900"><Link to="/recruitment/my-referrals">My referrals</Link></Button>
+              <Button asChild><Link to="/recruitment/my-referrals">My referrals</Link></Button>
             </div>
           </CardContent>
         </Card>
@@ -103,12 +107,12 @@ export default function ReferPage() {
                 </Field>
                 <Field id="rf-name" label="Their full name *"><Input id="rf-name" value={form.name} onChange={setInput('name')} maxLength={100} /></Field>
                 <Field id="rf-email" label="Their email *"><Input id="rf-email" type="email" value={form.email} onChange={setInput('email')} maxLength={254} /></Field>
-                <Field id="rf-phone" label="Phone"><Input id="rf-phone" type="tel" value={form.phone} onChange={setInput('phone')} maxLength={20} /></Field>
+                <Field id="rf-phone" label="Phone"><PhoneInput id="rf-phone" value={form.phone} onChange={(phone) => setForm(f => ({ ...f, phone }))} /></Field>
                 <Field id="rf-li" label="LinkedIn URL"><Input id="rf-li" value={form.linkedin_url} onChange={setInput('linkedin_url')} maxLength={300} placeholder="https://www.linkedin.com/in/…" /></Field>
                 <Field id="rf-rel" label="How do you know them?" className="sm:col-span-2"><Input id="rf-rel" value={form.relationship} onChange={setInput('relationship')} maxLength={100} placeholder="e.g. Former colleague at Acme" /></Field>
                 <Field id="rf-note" label="Why are they a good fit?" className="sm:col-span-2"><Textarea id="rf-note" rows={3} value={form.note} onChange={setInput('note')} maxLength={2000} /></Field>
                 <div className="sm:col-span-2 flex justify-end">
-                  <Button type="submit" disabled={saving} className="bg-slate-800 hover:bg-slate-900 w-full sm:w-auto">{saving ? 'Submitting…' : 'Submit referral'}</Button>
+                  <Button type="submit" disabled={saving} className="w-full sm:w-auto">{saving ? 'Submitting…' : 'Submit referral'}</Button>
                 </div>
               </form>
             </CardContent>

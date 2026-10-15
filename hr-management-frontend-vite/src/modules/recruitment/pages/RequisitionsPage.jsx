@@ -151,7 +151,7 @@ export default function RequisitionsPage() {
         <Button variant="outline" onClick={doExport} disabled={!visible.length} className="gap-2 h-9 sm:h-10 flex-1 sm:flex-none">
           <Download className="w-4 h-4" /> Export CSV
         </Button>
-        <Button onClick={openNew} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9 sm:h-10 flex-1 sm:flex-none">
+        <Button onClick={openNew} className="gap-2 h-9 sm:h-10 flex-1 sm:flex-none">
           <Plus className="w-4 h-4" /> New requisition
         </Button>
       </PageHeader>
@@ -266,7 +266,7 @@ export default function RequisitionsPage() {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : editing === 'new' ? 'Submit for approval' : 'Save changes'}</Button>
+            <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : editing === 'new' ? 'Submit for approval' : 'Save changes'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

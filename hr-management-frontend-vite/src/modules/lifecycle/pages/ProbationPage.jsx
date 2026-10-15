@@ -171,7 +171,7 @@ const ProbationPage = () => {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setAction(null)}>Cancel</Button>
-                <Button onClick={submit} disabled={busy} className={action.kind === 'confirm' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-800 hover:bg-slate-900'}>
+                <Button onClick={submit} disabled={busy} className={action.kind === 'confirm' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}>
                   {busy ? 'Saving…' : action.kind === 'confirm' ? 'Confirm employee' : 'Extend probation'}
                 </Button>
               </DialogFooter>

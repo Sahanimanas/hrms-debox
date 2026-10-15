@@ -4,7 +4,7 @@ export const BRAND_NAME = 'Xeno-HR';
 
 const SIZES = {
   sm: { mark: 'w-7 h-7 text-sm', text: 'text-lg' },
-  md: { mark: 'w-8 h-8 text-base', text: 'text-xl' },
+  md: { mark: 'w-8 h-8 text-lg', text: 'text-lg' },
   lg: { mark: 'w-11 h-11 text-xl', text: 'text-3xl' },
 };
 
@@ -24,14 +24,11 @@ const BrandLogo = ({ size = 'md', tone = 'light', product = 'hr', className = ''
   const p = PRODUCTS[product] || PRODUCTS.hr;
   return (
     <div className={`flex items-center gap-2 select-none ${className}`} aria-label={p.label}>
-      <div className={`${s.mark} rounded-lg bg-yellow-400 text-slate-900 font-extrabold flex items-center justify-center`}>
+      <div className={`${s.mark} rounded-md bg-brand text-brand-on font-display font-extrabold flex items-center justify-center`}>
         X
       </div>
-      <span
-        className={`${s.text} font-extrabold tracking-tight ${tone === 'light' ? 'text-white' : 'text-slate-900'}`}
-        style={{ fontFamily: 'Plus Jakarta Sans' }}
-      >
-        Xeno<span className="text-yellow-400">-{p.suffix}</span>
+      <span className={`${s.text} font-display font-semibold tracking-[-0.01em] ${tone === 'light' ? 'text-white' : 'text-ink'}`}>
+        Xeno<span className={tone === 'light' ? 'text-brand' : 'text-brand-text'}>-{p.suffix}</span>
       </span>
     </div>
   );

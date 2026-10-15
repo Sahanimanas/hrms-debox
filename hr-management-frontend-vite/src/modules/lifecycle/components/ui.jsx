@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { initials, avatarColor } from '../lib';
 
 export const PageShell = ({ children }) => (
-  <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+  <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
     <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">{children}</div>
   </div>
 );

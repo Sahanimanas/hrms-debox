@@ -89,7 +89,7 @@ export default function PayslipDialog({ payslip, open, onOpenChange, onDownload,
 
         {onDownload && (
           <div className="flex justify-end">
-            <Button onClick={onDownload} disabled={downloading} className="bg-slate-800 hover:bg-slate-900 gap-2">
+            <Button onClick={onDownload} disabled={downloading} className="gap-2">
               <Download className="w-4 h-4" /> {downloading ? 'Preparing…' : 'Download PDF'}
             </Button>
           </div>

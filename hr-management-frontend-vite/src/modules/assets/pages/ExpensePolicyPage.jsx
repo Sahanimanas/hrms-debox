@@ -24,7 +24,7 @@ export default function ExpensePolicyPage() {
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') === 'per-diem' ? 'per-diem' : 'policies';
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <PageHeader icon={ShieldCheck} title="Expense Policy" subtitle="Category limits for reimbursements and per-diem rates for travel" />
         <Tabs value={tab} onValueChange={(v) => setParams(v === 'per-diem' ? { tab: 'per-diem' } : {}, { replace: true })}>
@@ -108,7 +108,7 @@ function PoliciesTab() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={doExport} disabled={!policies.length}><Download className="w-4 h-4" /> Export CSV</Button>
-          <Button size="sm" className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setEditing({})}><Plus className="w-4 h-4" /> Add policy</Button>
+          <Button size="sm" className="gap-1.5" onClick={() => setEditing({})}><Plus className="w-4 h-4" /> Add policy</Button>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -263,7 +263,7 @@ function PolicyDialog({ policy, departments, usedCategories, onClose, onSaved })
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save policy'}</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save policy'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -383,7 +383,7 @@ function PerDiemTab() {
 
       <div className="flex items-center justify-end gap-3">
         {config.updated_at && <p className="text-xs text-slate-500">Last saved {new Date(config.updated_at).toLocaleString()}{config.updated_by ? ` by ${config.updated_by}` : ''}</p>}
-        <Button onClick={save} disabled={saving} className="gap-1.5 bg-slate-800 hover:bg-slate-900"><Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save rates'}</Button>
+        <Button onClick={save} disabled={saving} className="gap-1.5"><Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save rates'}</Button>
       </div>
     </div>
   );

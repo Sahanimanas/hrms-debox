@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import { Home, Users, FileText, CheckSquare, User, LogOut, Menu, X, Settings, Bell, Network, ClipboardList, Wallet, Gift, Building2, BarChart3, DollarSign, Calculator, Layout as LayoutIcon, Clock, Clock3, Timer, CalendarDays, Receipt, ClipboardCheck } from 'lucide-react';
+import { Home, Users, FileText, CheckSquare, User, LogOut, Menu, X, Settings, Bell, Network, ClipboardList, Wallet, Gift, Building2, BarChart3, DollarSign, Calculator, Layout as LayoutIcon, Clock, Clock3, Timer, CalendarDays, Receipt, ClipboardCheck, Sparkles } from 'lucide-react';
 import { clearAuth, getAuth, hasPermission } from '@/lib/auth';
-import { Button } from '@/components/ui/button';
 import api from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 import { clearOrgPreferences } from '@/lib/orgPreferences';
@@ -10,6 +9,8 @@ import NotificationBell from '@/components/NotificationBell';
 import BrandLogo from '@/components/BrandLogo';
 import SidebarNav from '@/components/SidebarNav';
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
+import Topbar from '@/components/Topbar';
+import { Avatar } from '@/components/ds';
 import { moduleNav } from '@/modules/registry';
 import InstallPrompt from '@/modules/platform/components/InstallPrompt';
 import LanguageSwitcher from '@/modules/platform/components/LanguageSwitcher';
@@ -57,41 +58,6 @@ const CORE_NAV = [
   { name: 'Notifications', href: '/notifications', icon: Bell, roles: ['admin'], section: 'Administration' },
 ];
 
-const AVATAR_COLORS = [
-  'bg-slate-900', 'bg-emerald-500', 'bg-purple-500', 'bg-amber-500', 'bg-rose-500',
-  'bg-cyan-500', 'bg-slate-800', 'bg-pink-500', 'bg-teal-500', 'bg-orange-500',
-];
-
-const getInitials = (name) => {
-  if (!name) return '?';
-  const parts = name.trim().split(' ');
-  if (parts.length === 1) return parts[0][0]?.toUpperCase() || '?';
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-};
-
-const getAvatarColor = (name) => {
-  if (!name) return AVATAR_COLORS[0];
-  const index = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % AVATAR_COLORS.length;
-  return AVATAR_COLORS[index];
-};
-
-const UserAvatar = ({ name, pictureUrl, size = 'md' }) => {
-  const [broken, setBroken] = useState(false);
-  const sizeClasses = size === 'md' ? 'w-10 h-10' : 'w-8 h-8';
-  const textSize = size === 'md' ? 'text-sm' : 'text-xs';
-  return (
-    <div className={`flex-shrink-0 ${sizeClasses} rounded-full overflow-hidden ring-2 ring-slate-100`}>
-      {pictureUrl && !broken ? (
-        <img src={pictureUrl} alt={name} className="w-full h-full object-cover" onError={() => setBroken(true)} />
-      ) : (
-        <div className={`w-full h-full ${getAvatarColor(name)} flex items-center justify-center text-white font-semibold ${textSize}`}>
-          {getInitials(name)}
-        </div>
-      )}
-    </div>
-  );
-};
-
 /** Visible when the role matches, or the item's `permission` is held (admins hold all). */
 const isNavItemVisible =(item, user, permissions) =>
   (Array.isArray(item.roles) && item.roles.includes(user?.role)) ||
@@ -100,7 +66,7 @@ const isNavItemVisible =(item, user, permissions) =>
 const Layout = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t, language, setLanguage } = useI18n();
+  const { language, setLanguage } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [lastPath, setLastPath] = useState(location.pathname);
@@ -159,120 +125,63 @@ const Layout = () => {
   const displayName = currentUser?.full_name || user?.full_name;
   const profilePictureUrl = currentUser?.profile_picture_url;
   const roleLabel = currentUser?.custom_role_name || user?.role;
+  const email = currentUser?.email || user?.email;
+  const orgName = currentUser?.organization_name || currentUser?.organization?.name;
+  const sidebarProps = {
+    items: filteredNavigation, isActive, orgName, displayName, profilePictureUrl, roleLabel, onLogout: handleLogout,
+  };
 
   return (
-    <div className="flex h-screen bg-slate-50">
+    <div className="flex h-screen bg-canvas">
       {/* Desktop Sidebar */}
-      <div className="hidden md:flex md:flex-col md:w-64 bg-slate-900 border-r border-slate-800">
-        <div className="flex items-center h-16 px-6 border-b border-slate-800">
-          <BrandLogo size="md" />
-        </div>
-
-        <nav className="flex-1 px-3 py-5 overflow-y-auto">
-          <SidebarNav items={filteredNavigation} isActive={isActive} compact />
-        </nav>
-
-        <div className="p-4 border-t border-slate-800 space-y-3">
-          <div className="flex items-center justify-between">
-            <Link to="/profile" className="flex items-center flex-1 min-w-0 p-2 -mx-2 rounded-lg hover:bg-slate-800 transition-colors">
-              <UserAvatar name={displayName} pictureUrl={profilePictureUrl} size="md" />
-              <div className="ml-3 flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{displayName}</p>
-                <p className="text-xs text-slate-400 truncate capitalize">{roleLabel}</p>
-              </div>
-            </Link>
-            <NotificationBell />
-          </div>
-          <WorkspaceSwitcher current="hr" />
-          <LanguageSwitcher tone="dark" />
-          <Button
-            onClick={handleLogout}
-            data-testid="logout-btn"
-            variant="ghost"
-            className="w-full justify-start text-slate-300 hover:text-yellow-400 hover:bg-slate-800"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            {t('Logout')}
-          </Button>
-        </div>
-      </div>
+      <aside className="hidden md:flex md:flex-col md:w-[264px] shrink-0 bg-navy">
+        <SidebarBody {...sidebarProps} />
+      </aside>
 
       {/* Mobile Sidebar with Animation */}
       <div
         className={`fixed inset-0 z-40 md:hidden transition-opacity duration-300 ease-in-out ${sidebarOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
       >
         <div
-          className={`fixed inset-0 bg-slate-900/50 transition-opacity duration-300 ease-in-out ${sidebarOpen ? 'opacity-100' : 'opacity-0'}`}
+          className={`fixed inset-0 bg-navy/50 transition-opacity duration-300 ease-in-out ${sidebarOpen ? 'opacity-100' : 'opacity-0'}`}
           onClick={() => setSidebarOpen(false)}
         />
-
-        <div
-          className={`fixed inset-y-0 left-0 w-72 max-w-[85vw] flex flex-col bg-slate-900 shadow-2xl transform transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        <aside
+          className={`fixed inset-y-0 left-0 w-72 max-w-[85vw] flex flex-col bg-navy shadow-2xl transform transition-transform duration-300 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-          <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800 shrink-0">
-            <BrandLogo size="md" />
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="p-2 text-slate-400 hover:text-yellow-400 hover:bg-slate-800 rounded-lg transition-colors"
-              aria-label={t('Close')}
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          <div className="px-4 py-4 border-b border-slate-800 shrink-0">
-            <Link
-              to="/profile"
-              onClick={() => setSidebarOpen(false)}
-              className="flex items-center p-2 -mx-2 rounded-lg hover:bg-slate-800 transition-colors"
-            >
-              <UserAvatar name={displayName} pictureUrl={profilePictureUrl} size="md" />
-              <div className="ml-3 flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{displayName}</p>
-                <p className="text-xs text-slate-400 truncate capitalize">{roleLabel}</p>
-              </div>
-            </Link>
-          </div>
-
-          <nav className="flex-1 px-3 py-4 overflow-y-auto">
-            <SidebarNav items={filteredNavigation} isActive={isActive} onNavigate={() => setSidebarOpen(false)} />
-          </nav>
-
-          <div className="p-4 border-t border-slate-800 bg-slate-900 space-y-3 shrink-0" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
-            <WorkspaceSwitcher current="hr" />
-            <LanguageSwitcher tone="dark" />
-            <Button
-              onClick={handleLogout}
-              variant="ghost"
-              className="w-full justify-start text-slate-300 hover:text-yellow-400 hover:bg-slate-800"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              {t('Logout')}
-            </Button>
-          </div>
-        </div>
+          <SidebarBody {...sidebarProps} onNavigate={() => setSidebarOpen(false)} onClose={() => setSidebarOpen(false)} />
+        </aside>
       </div>
 
       {/* Main Content */}
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between h-14 px-4 bg-white border-b border-slate-200 shrink-0">
+        <div className="md:hidden flex items-center justify-between h-14 px-4 bg-surface border-b border-line shrink-0">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="p-2 -ml-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 -ml-2 text-ink-secondary hover:text-ink hover:bg-subtle rounded-md transition-colors"
             data-testid="mobile-menu-btn"
             aria-label="Menu"
           >
             <Menu className="w-5 h-5" />
           </button>
           <BrandLogo size="sm" tone="dark" />
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <NotificationBell />
             <Link to="/profile" className="flex-shrink-0">
-              <UserAvatar name={displayName} pictureUrl={profilePictureUrl} size="sm" />
+              <Avatar name={displayName} src={profilePictureUrl} size="sm" className="bg-brand text-brand-on" />
             </Link>
           </div>
         </div>
+
+        <Topbar
+          navItems={filteredNavigation}
+          name={displayName}
+          email={email}
+          pictureUrl={profilePictureUrl}
+          onLogout={handleLogout}
+        />
 
         <OfflineBanner />
         <TwoFactorBanner show={!!currentUser?.two_factor_setup_required && location.pathname !== '/security'} />
@@ -285,6 +194,70 @@ const Layout = () => {
 
       <InstallPrompt />
       {location.pathname !== '/assistant' && <AssistantWidget isAdmin={user?.role === 'admin'} />}
+    </div>
+  );
+};
+
+/** Sidebar contents (Figma "App/Sidebar"), shared by the desktop rail and the mobile drawer. */
+const SidebarBody = ({ items, isActive, orgName, displayName, profilePictureUrl, roleLabel, onLogout, onNavigate, onClose }) => {
+  const { t } = useI18n();
+  const hasAssistant = items.some(i => i.href === '/assistant');
+  return (
+    <div className="flex flex-1 min-h-0 flex-col gap-5 px-4 py-5">
+      <div className="flex items-center gap-2.5 px-2">
+        <BrandLogo size="md" className="flex-1" />
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1.5 text-navy-text hover:text-white hover:bg-navy-hover rounded-md transition-colors"
+            aria-label={t('Close')}
+          >
+            <X className="w-[18px] h-[18px]" />
+          </button>
+        )}
+      </div>
+
+      <WorkspaceSwitcher current="hr" variant="card" title={orgName} />
+
+      <nav className="flex-1 min-h-0 -mx-1 px-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#1c2740_transparent]">
+        <SidebarNav items={items} isActive={isActive} onNavigate={onNavigate} compact />
+      </nav>
+
+      {hasAssistant && (
+        <Link
+          to="/assistant"
+          onClick={onNavigate}
+          className="block rounded-lg border border-navy-border bg-gradient-to-r from-brand/[0.18] to-[#7a59f7]/[0.18] p-4 hover:border-navy-text/40 transition-colors"
+        >
+          <span className="flex items-center gap-2 text-[13px] leading-[18px] font-medium text-white">
+            <Sparkles className="w-4 h-4 text-brand" /> {t('Ask Xeno AI')}
+          </span>
+          <span className="mt-2.5 block text-xs leading-4 font-medium text-navy-text">
+            “{t('How many casual leaves do I have left?')}”
+          </span>
+        </Link>
+      )}
+
+      {onClose && <LanguageSwitcher tone="dark" className="px-2" />}
+
+      <div className="flex items-center gap-2.5 border-t border-navy-border pt-4 px-2">
+        <Link to="/profile" onClick={onNavigate} className="flex flex-1 min-w-0 items-center gap-2.5 rounded-md hover:opacity-90">
+          <Avatar name={displayName} src={profilePictureUrl} size="sm" className="bg-brand text-brand-on" />
+          <span className="flex-1 min-w-0">
+            <span className="block text-[13px] leading-[18px] font-medium text-white truncate">{displayName}</span>
+            <span className="block text-xs leading-4 font-medium text-navy-text truncate capitalize">{roleLabel}</span>
+          </span>
+        </Link>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="p-1.5 rounded-md text-navy-text hover:text-white hover:bg-navy-hover transition-colors"
+          aria-label={t('Logout')}
+          title={t('Logout')}
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
+      </div>
     </div>
   );
 };

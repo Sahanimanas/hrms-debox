@@ -176,7 +176,7 @@ function GoalForm({ cycleId, goal, mode, team, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save'}</Button>
+        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
       </DialogFooter>
     </>
   );
@@ -238,7 +238,7 @@ function CheckInForm({ goal, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Record check-in'}</Button>
+        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Record check-in'}</Button>
       </DialogFooter>
     </>
   );
@@ -271,7 +271,7 @@ function SendBackForm({ target, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">Send back</Button>
+        <Button onClick={save} disabled={saving}>Send back</Button>
       </DialogFooter>
     </>
   );
@@ -336,7 +336,7 @@ function CycleForm({ cycle, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save'}</Button>
+        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
       </DialogFooter>
     </>
   );
@@ -546,7 +546,7 @@ const GoalsPage = () => {
                     <ExportButton onClick={() => goalCsv(mine, 'my-goals')} disabled={!mine.length} />
                     {cycleOpen && <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'goal', mode: 'self' })}><Plus className="w-4 h-4 mr-1" /> Add goal</Button>}
                     {cycleOpen && drafts.length > 0 && (
-                      <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={submitGoals} disabled={totalWeight !== 100} title={totalWeight !== 100 ? 'Weightages must total 100%' : undefined}>
+                      <Button size="sm" onClick={submitGoals} disabled={totalWeight !== 100} title={totalWeight !== 100 ? 'Weightages must total 100%' : undefined}>
                         <Send className="w-4 h-4 mr-1" /> Submit ({drafts.length})
                       </Button>
                     )}
@@ -584,7 +584,7 @@ const GoalsPage = () => {
               actions={(
                 <>
                   <ExportButton onClick={() => goalCsv(teamGoals.data || [], 'team-goals')} disabled={!teamGoals.data?.length} />
-                  {cycleOpen && <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setDialog({ kind: 'goal', mode: 'assign' })}><Plus className="w-4 h-4 mr-1" /> Assign goal</Button>}
+                  {cycleOpen && <Button size="sm" onClick={() => setDialog({ kind: 'goal', mode: 'assign' })}><Plus className="w-4 h-4 mr-1" /> Assign goal</Button>}
                 </>
               )}
             >
@@ -639,7 +639,7 @@ const GoalsPage = () => {
             actions={(
               <>
                 <ExportButton onClick={() => goalCsv(companyGoals.data || [], 'company-goals')} disabled={!companyGoals.data?.length} />
-                {isAdmin && cycleEditable && <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setDialog({ kind: 'goal', mode: 'company' })}><Plus className="w-4 h-4 mr-1" /> New company goal</Button>}
+                {isAdmin && cycleEditable && <Button size="sm" onClick={() => setDialog({ kind: 'goal', mode: 'company' })}><Plus className="w-4 h-4 mr-1" /> New company goal</Button>}
               </>
             )}
           >
@@ -673,7 +673,7 @@ const GoalsPage = () => {
                     { key: 'period_end', label: 'End' }, { key: 'goal_deadline', label: 'Goal deadline' },
                     { key: 'goal_count', label: 'Goals' }, { key: 'employee_count', label: 'Employees with goals' },
                   ])} disabled={!cycles.data?.length} />
-                  <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setDialog({ kind: 'cycle' })}><Plus className="w-4 h-4 mr-1" /> New cycle</Button>
+                  <Button size="sm" onClick={() => setDialog({ kind: 'cycle' })}><Plus className="w-4 h-4 mr-1" /> New cycle</Button>
                 </>
               )}
             >

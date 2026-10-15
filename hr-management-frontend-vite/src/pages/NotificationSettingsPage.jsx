@@ -11,6 +11,8 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import PhoneInput from '@/components/PhoneInput';
+import { phoneError } from '@/lib/phone';
 
 const NOTIFICATION_TYPES = [
   { value: 'leave_applied', label: 'Leave Applied', group: 'Leave' },
@@ -224,8 +226,9 @@ const NotificationSettingsPage = () => {
   };
 
   const handleSendTest = async () => {
-    if (!testPhone.trim()) {
-      toast.error('Please enter a phone number');
+    const phoneProblem = phoneError(testPhone, { required: true });
+    if (phoneProblem) {
+      toast.error(phoneProblem);
       return;
     }
 
@@ -277,11 +280,11 @@ const NotificationSettingsPage = () => {
           <div className="space-y-2">
             <Label htmlFor="test-phone">Send Test Message</Label>
             <div className="flex gap-2">
-              <Input
+              <PhoneInput
                 id="test-phone"
-                placeholder="Phone number (e.g. 9876543210)"
                 value={testPhone}
-                onChange={(e) => setTestPhone(e.target.value)}
+                onChange={setTestPhone}
+                className="flex-1"
               />
               <Button
                 onClick={handleSendTest}
@@ -505,7 +508,7 @@ const NotificationSettingsPage = () => {
                 <div className="pt-4 border-t border-slate-200">
                   <Button
                     type="submit"
-                    className="w-full bg-slate-800 hover:bg-slate-900 rounded-full"
+                    className="w-full rounded-full"
                     disabled={saving}
                   >
                     <Save className="w-4 h-4 mr-2" />
@@ -658,7 +661,7 @@ const NotificationSettingsPage = () => {
                 <div className="pt-4 border-t border-slate-200">
                   <Button
                     type="submit"
-                    className="w-full bg-slate-800 hover:bg-slate-900 rounded-full"
+                    className="w-full rounded-full"
                     disabled={saving}
                   >
                     <Save className="w-4 h-4 mr-2" />
@@ -732,7 +735,7 @@ const NotificationSettingsPage = () => {
                         setSaving(false);
                       }
                     }}
-                    className="w-full bg-slate-800 hover:bg-slate-900 rounded-full"
+                    className="w-full rounded-full"
                     disabled={saving}
                   >
                     <Save className="w-4 h-4 mr-2" />

@@ -85,7 +85,7 @@ export default function DocsTab({ project, editable }) {
   return (
     <div className="grid md:grid-cols-[240px_1fr] gap-4">
       <div className="space-y-2">
-        {editable && <Button size="sm" className="w-full gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={create}><Plus className="w-4 h-4" /> New doc</Button>}
+        {editable && <Button size="sm" className="w-full gap-1.5" onClick={create}><Plus className="w-4 h-4" /> New doc</Button>}
         <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden">
           {docs.length === 0 && <p className="text-xs text-slate-400 p-3">No docs yet</p>}
           {docs.map(d => (
@@ -111,7 +111,7 @@ export default function DocsTab({ project, editable }) {
                   {draft ? (
                     <>
                       <Button size="sm" variant="ghost" onClick={() => setDraft(null)}>Cancel</Button>
-                      <Button size="sm" className="gap-1 bg-slate-800 hover:bg-slate-900" disabled={saving || !draft.title.trim()} onClick={() => save()}><Save className="w-3.5 h-3.5" /> Save</Button>
+                      <Button size="sm" className="gap-1" disabled={saving || !draft.title.trim()} onClick={() => save()}><Save className="w-3.5 h-3.5" /> Save</Button>
                     </>
                   ) : (
                     <>

@@ -111,7 +111,7 @@ const OrgPreferencesPage = () => {
                         {opts?.date_formats.map(c => <option key={c} value={c}>{c} ({safeFormatDate(c)})</option>)}
                       </select>
                     </label>
-                    <Button size="sm" disabled={!dirty || saving === o.organization_id} onClick={() => save(o.organization_id)} className="bg-slate-800 hover:bg-slate-900 gap-1.5 md:self-end">
+                    <Button size="sm" disabled={!dirty || saving === o.organization_id} onClick={() => save(o.organization_id)} className="gap-1.5 md:self-end">
                       <Save className="w-4 h-4" /> Save
                     </Button>
                   </div>

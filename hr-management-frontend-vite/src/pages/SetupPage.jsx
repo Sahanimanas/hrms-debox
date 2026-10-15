@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import PasswordRules from '@/components/PasswordRules';
+import { passwordPolicyMessage } from '@/lib/password';
 
 const SetupPage = ({ onSetupComplete }) => {
   const [step, setStep] = useState(1);
@@ -155,8 +157,9 @@ const SetupPage = ({ onSetupComplete }) => {
       return;
     }
 
-    if (adminConfig.password.length < 8) {
-      toast.error('Password must be at least 8 characters long');
+    const passwordProblem = passwordPolicyMessage(adminConfig.password);
+    if (passwordProblem) {
+      toast.error(passwordProblem);
       return;
     }
 
@@ -509,11 +512,13 @@ const SetupPage = ({ onSetupComplete }) => {
                 <Input
                   id="admin_password"
                   type="password"
-                  placeholder="Minimum 8 characters"
+                  placeholder="Choose a strong password"
                   value={adminConfig.password}
                   onChange={(e) => setAdminConfig({ ...adminConfig, password: e.target.value })}
+                  aria-describedby="admin-password-rules"
                   className="mt-1"
                 />
+                <PasswordRules id="admin-password-rules" password={adminConfig.password} className="mt-2" />
               </div>
 
               <div>

@@ -151,7 +151,7 @@ export default function AssetFormDialog({ open, onOpenChange, asset, categories,
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">
+          <Button onClick={save} disabled={saving}>
             {saving ? 'Saving…' : editing ? 'Save changes' : 'Add asset'}
           </Button>
         </DialogFooter>

@@ -44,7 +44,7 @@ export default function MyReferralsPage() {
     <PageShell>
       <PageHeader icon={Users2} title="My Referrals" subtitle="Track the people you have referred">
         <Button variant="outline" onClick={doExport} disabled={!list?.length} className="gap-2 h-9"><Download className="w-4 h-4" /> Export CSV</Button>
-        <Button asChild className="bg-slate-800 hover:bg-slate-900 gap-2 h-9"><Link to="/recruitment/refer"><UserPlus className="w-4 h-4" /> Refer someone</Link></Button>
+        <Button asChild className="gap-2 h-9"><Link to="/recruitment/refer"><UserPlus className="w-4 h-4" /> Refer someone</Link></Button>
       </PageHeader>
 
       {list && list.length > 0 && (
@@ -59,7 +59,7 @@ export default function MyReferralsPage() {
       <TableCard>
         {error ? <ErrorState message={error} onRetry={() => setReloadKey(k => k + 1)} /> : !list ? <LoadingState /> : list.length === 0 ? (
           <EmptyState icon={Users2} title="You haven't referred anyone yet" hint="Great people know great people.">
-            <Button asChild className="bg-slate-800 hover:bg-slate-900"><Link to="/recruitment/refer">Refer a candidate</Link></Button>
+            <Button asChild><Link to="/recruitment/refer">Refer a candidate</Link></Button>
           </EmptyState>
         ) : (
           <div className="overflow-x-auto">

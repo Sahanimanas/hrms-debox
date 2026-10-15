@@ -49,7 +49,7 @@ export default function ProjectsPage() {
   return (
     <div className="p-3 sm:p-4 md:p-8 max-w-7xl mx-auto space-y-5">
       <PageHeader icon={FolderKanban} title="Projects" subtitle="Every project you lead, belong to or can view">
-        {meta?.can_create_projects && <Button className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setCreating(true)} data-testid="new-project-btn"><Plus className="w-4 h-4" /> New project</Button>}
+        {meta?.can_create_projects && <Button className="gap-1.5" onClick={() => setCreating(true)} data-testid="new-project-btn"><Plus className="w-4 h-4" /> New project</Button>}
       </PageHeader>
 
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between">
@@ -69,7 +69,7 @@ export default function ProjectsPage() {
 
       {loading ? <Loading /> : error ? <ErrorState message={error} onRetry={reload} /> : list.length === 0 ? (
         <Empty icon={FolderKanban} title={tab === 'archived' ? 'No archived projects' : 'No projects here yet'}>
-          {meta?.can_create_projects && tab !== 'archived' && <Button size="sm" className="mt-2 bg-slate-800 hover:bg-slate-900" onClick={() => setCreating(true)}>Create a project</Button>}
+          {meta?.can_create_projects && tab !== 'archived' && <Button size="sm" className="mt-2" onClick={() => setCreating(true)}>Create a project</Button>}
         </Empty>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">

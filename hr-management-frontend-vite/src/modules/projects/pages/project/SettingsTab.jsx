@@ -151,7 +151,7 @@ export default function SettingsTab({ project, people, onChanged }) {
               {COLORS.map(c => <button key={c} type="button" onClick={() => set('color', c)} aria-label={c} className={`w-7 h-7 rounded-lg ${details.color === c ? 'ring-2 ring-offset-2 ring-slate-900' : ''}`} style={{ backgroundColor: c }} />)}
             </div>
           </div>
-          {isAdmin && <Button onClick={saveDetails} className="gap-1.5 bg-slate-800 hover:bg-slate-900"><Save className="w-4 h-4" /> Save details</Button>}
+          {isAdmin && <Button onClick={saveDetails} className="gap-1.5"><Save className="w-4 h-4" /> Save details</Button>}
         </fieldset>
       </Section>
 
@@ -183,7 +183,7 @@ export default function SettingsTab({ project, people, onChanged }) {
               <SelectTrigger className="sm:w-40"><SelectValue /></SelectTrigger>
               <SelectContent>{Object.entries(PROJECT_ROLES).map(([k, r]) => <SelectItem key={k} value={k}>{r.label}</SelectItem>)}</SelectContent>
             </Select>
-            <Button onClick={addMember} disabled={!newMember.email} className="gap-1.5 bg-slate-800 hover:bg-slate-900"><UserPlus className="w-4 h-4" /> Add</Button>
+            <Button onClick={addMember} disabled={!newMember.email} className="gap-1.5"><UserPlus className="w-4 h-4" /> Add</Button>
           </div>
         )}
         <p className="text-[11px] text-slate-500 mt-2">{Object.values(PROJECT_ROLES).map(r => `${r.label}: ${r.hint.toLowerCase()}`).join(' · ')}</p>
@@ -213,7 +213,7 @@ export default function SettingsTab({ project, people, onChanged }) {
         {isAdmin && (
           <div className="flex flex-wrap gap-2 mt-3">
             <Button size="sm" variant="outline" className="gap-1" onClick={() => setStatuses(l => [...l, { key: '', label: 'New status', category: 'in_progress', color: '#64748b' }])}><Plus className="w-4 h-4" /> Add status</Button>
-            <Button size="sm" className="gap-1 bg-slate-800 hover:bg-slate-900" onClick={() => call(() => api.put(`${API}/projects/${project.id}/statuses`, { statuses }), 'Workflow saved')}><Save className="w-4 h-4" /> Save workflow</Button>
+            <Button size="sm" className="gap-1" onClick={() => call(() => api.put(`${API}/projects/${project.id}/statuses`, { statuses }), 'Workflow saved')}><Save className="w-4 h-4" /> Save workflow</Button>
             <p className="text-[11px] text-slate-500 w-full">Tasks in a removed status move to the first remaining status of the same category.</p>
           </div>
         )}
@@ -232,7 +232,7 @@ export default function SettingsTab({ project, people, onChanged }) {
         {isAdmin && (
           <div className="flex gap-2 mt-3">
             <Button size="sm" variant="outline" className="gap-1" onClick={() => setLabels(l => [...l, { name: 'New label', color: COLORS[(l.length + 2) % COLORS.length] }])}><Plus className="w-4 h-4" /> Add label</Button>
-            <Button size="sm" className="gap-1 bg-slate-800 hover:bg-slate-900" disabled={labels.some(l => !l.name.trim())} onClick={() => call(() => api.put(`${API}/projects/${project.id}/labels`, { labels }), 'Labels saved')}><Save className="w-4 h-4" /> Save labels</Button>
+            <Button size="sm" className="gap-1" disabled={labels.some(l => !l.name.trim())} onClick={() => call(() => api.put(`${API}/projects/${project.id}/labels`, { labels }), 'Labels saved')}><Save className="w-4 h-4" /> Save labels</Button>
           </div>
         )}
       </Section>

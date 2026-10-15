@@ -97,7 +97,7 @@ const AuditLogPage = () => {
         <Button variant="outline" className="gap-2 flex-1 sm:flex-none" onClick={() => setShowFilters(s => !s)}>
           <Filter className="w-4 h-4" /> Filters{activeCount ? ` (${activeCount})` : ''}
         </Button>
-        <Button onClick={exportCsv} disabled={exporting || data.total === 0} className="bg-slate-800 hover:bg-slate-900 gap-2 flex-1 sm:flex-none">
+        <Button onClick={exportCsv} disabled={exporting || data.total === 0} className="gap-2 flex-1 sm:flex-none">
           <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export CSV'}
         </Button>
       </PageHeader>
@@ -173,7 +173,7 @@ const AuditLogPage = () => {
                 <Input id="f-to" type="date" value={filters.to} onChange={set('to')} className="mt-1" />
               </div>
               <div className="col-span-2 flex items-end gap-2">
-                <Button type="submit" className="bg-slate-800 hover:bg-slate-900 flex-1">Apply</Button>
+                <Button type="submit" className="flex-1">Apply</Button>
                 <Button type="button" variant="outline" onClick={reset} className="gap-1"><X className="w-4 h-4" /> Clear</Button>
               </div>
             </form>

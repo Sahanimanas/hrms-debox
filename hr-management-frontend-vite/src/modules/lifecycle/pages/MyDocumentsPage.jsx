@@ -57,7 +57,7 @@ const MyDocumentsPage = () => {
     <PageShell>
       <PageHeader icon={FolderLock} title="My Documents" subtitle="Your offer letter, contracts, ID and certificates in one place">
         <Button variant="outline" className="gap-2 flex-1 sm:flex-none" onClick={doExport} disabled={!docs.length}><Download className="w-4 h-4" />Export CSV</Button>
-        <Button onClick={() => setUploadOpen(true)} className="bg-slate-800 hover:bg-slate-900 gap-2 flex-1 sm:flex-none"><Upload className="w-4 h-4" />Upload</Button>
+        <Button onClick={() => setUploadOpen(true)} className="gap-2 flex-1 sm:flex-none"><Upload className="w-4 h-4" />Upload</Button>
       </PageHeader>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-4">

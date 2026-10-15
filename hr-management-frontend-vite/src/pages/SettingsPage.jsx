@@ -209,7 +209,7 @@ const SettingsPage = () => {
               <Button
                 onClick={addDepartment}
                 data-testid="add-department-btn"
-                className="bg-slate-800 hover:bg-slate-900 rounded-full px-4"
+                className="rounded-full px-4"
               >
                 <Plus className="w-4 h-4" />
               </Button>
@@ -263,7 +263,7 @@ const SettingsPage = () => {
               <Button
                 onClick={addDesignation}
                 data-testid="add-designation-btn"
-                className="bg-slate-800 hover:bg-slate-900 rounded-full px-4"
+                className="rounded-full px-4"
               >
                 <Plus className="w-4 h-4" />
               </Button>
@@ -317,7 +317,7 @@ const SettingsPage = () => {
               <Button
                 onClick={addLeaveType}
                 data-testid="add-leave-type-btn"
-                className="bg-slate-800 hover:bg-slate-900 rounded-full px-4"
+                className="rounded-full px-4"
               >
                 <Plus className="w-4 h-4" />
               </Button>
@@ -410,7 +410,7 @@ const SettingsPage = () => {
             <Button
               onClick={saveEmployeeIdSettings}
               disabled={savingEmployeeId}
-              className="w-full md:w-auto bg-slate-800 hover:bg-slate-900 rounded-full"
+              className="w-full md:w-auto rounded-full"
             >
               {savingEmployeeId ? 'Saving...' : 'Save Employee ID Settings'}
             </Button>

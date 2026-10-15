@@ -52,7 +52,7 @@ function MySkills() {
             { key: 'name', label: 'Skill' }, { key: 'category', label: 'Category' }, { key: 'self_rating', label: 'Self rating' },
             { key: 'manager_rating', label: 'Manager rating' }, { key: 'target_level', label: 'Target' },
           ])} />
-          <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={save} disabled={!changed.length || saving}><Save className="w-4 h-4 mr-1" /> Save{changed.length ? ` (${changed.length})` : ''}</Button>
+          <Button size="sm" onClick={save} disabled={!changed.length || saving}><Save className="w-4 h-4 mr-1" /> Save{changed.length ? ` (${changed.length})` : ''}</Button>
         </>
       )}
     >
@@ -121,7 +121,7 @@ function ValidateForm({ employee, skills, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">Validate</Button>
+        <Button onClick={save} disabled={saving}>Validate</Button>
       </DialogFooter>
     </>
   );
@@ -351,7 +351,7 @@ function SkillAdmin() {
                   <SimpleSelect className="w-40" value={targetFor(s.id) ? String(targetFor(s.id)) : NONE} onChange={(v) => setDraft(d => ({ ...d, [s.id]: v === NONE ? null : Number(v) }))} options={[{ value: NONE, label: 'No target' }, ...LEVELS]} />
                 </div>
               ))}
-              <div className="flex justify-end"><Button onClick={saveTargets} disabled={!Object.keys(draft).length} className="bg-slate-800 hover:bg-slate-900">Save targets</Button></div>
+              <div className="flex justify-end"><Button onClick={saveTargets} disabled={!Object.keys(draft).length}>Save targets</Button></div>
             </div>
           </DataState>
         )}
@@ -367,7 +367,7 @@ function SkillAdmin() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button onClick={saveEdit} className="bg-slate-800 hover:bg-slate-900">Save</Button>
+            <Button onClick={saveEdit}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

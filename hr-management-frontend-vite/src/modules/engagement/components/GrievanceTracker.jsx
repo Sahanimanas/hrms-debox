@@ -59,7 +59,7 @@ export default function GrievanceTracker({ initialCode = '' }) {
     <div className="space-y-3">
       <form onSubmit={lookup} className="flex flex-col sm:flex-row gap-2">
         <Input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="GRV-XXXX-XXXX-XXXX" className="font-mono" maxLength={40} aria-label="Tracking code" />
-        <Button type="submit" className="bg-slate-800 hover:bg-slate-900 gap-2" disabled={busy}><Search className="w-4 h-4" />{busy ? 'Checking…' : 'Check status'}</Button>
+        <Button type="submit" className="gap-2" disabled={busy}><Search className="w-4 h-4" />{busy ? 'Checking…' : 'Check status'}</Button>
       </form>
       <p className="text-[11px] text-slate-500 flex items-center gap-1"><ShieldCheck className="w-3.5 h-3.5" />Status checks are not linked to your account.</p>
       {error && <p className="text-sm text-rose-600">{error}</p>}

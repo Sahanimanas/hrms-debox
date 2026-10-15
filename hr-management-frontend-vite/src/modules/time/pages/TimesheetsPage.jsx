@@ -149,7 +149,7 @@ const MyWeek = ({ projects }) => {
           {editable && (
             <>
               <Button variant="outline" onClick={save} disabled={busy || !dirty} className="gap-1.5"><Save className="w-4 h-4" /> Save</Button>
-              <Button onClick={submit} disabled={busy || weekTotal === 0} className="bg-slate-800 hover:bg-slate-900 gap-1.5"><Send className="w-4 h-4" /> Submit</Button>
+              <Button onClick={submit} disabled={busy || weekTotal === 0} className="gap-1.5"><Send className="w-4 h-4" /> Submit</Button>
             </>
           )}
           {week?.status === 'submitted' && (
@@ -409,7 +409,7 @@ const Projects = ({ onChange }) => {
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <Button onClick={() => open(null)} className="bg-slate-800 hover:bg-slate-900 gap-1.5"><Plus className="w-4 h-4" /> New project</Button>
+        <Button onClick={() => open(null)} className="gap-1.5"><Plus className="w-4 h-4" /> New project</Button>
       </div>
       <Card className="border-0 shadow-md">
         <CardContent className="p-0 overflow-x-auto">
@@ -477,7 +477,7 @@ const Projects = ({ onChange }) => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-            <Button onClick={save} disabled={!form.name.trim() || (dialog === 'new' && !form.code.trim())} className="bg-slate-800 hover:bg-slate-900">Save</Button>
+            <Button onClick={save} disabled={!form.name.trim() || (dialog === 'new' && !form.code.trim())}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -591,7 +591,7 @@ const TimesheetsPage = () => {
   }, [searchParams, isApprover]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="p-2 sm:p-3 bg-slate-800 rounded-lg sm:rounded-xl shadow-lg">

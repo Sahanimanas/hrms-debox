@@ -164,7 +164,7 @@ const LettersPage = () => {
                       <div className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{preview.body}</div>
                     </div>
                     <div className="flex justify-end">
-                      <Button onClick={generate} disabled={busy} className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto"><FileDown className="w-4 h-4" />{busy ? 'Generating…' : 'Generate PDF & save to vault'}</Button>
+                      <Button onClick={generate} disabled={busy} className="gap-2 w-full sm:w-auto"><FileDown className="w-4 h-4" />{busy ? 'Generating…' : 'Generate PDF & save to vault'}</Button>
                     </div>
                   </div>
                 )}
@@ -173,7 +173,7 @@ const LettersPage = () => {
           </TabsContent>
 
           <TabsContent value="templates">
-            <SectionCard icon={FileSignature} title="Templates" actions={<Button size="sm" className="h-8 gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setEditing({ ...EMPTY })}><Plus className="w-3.5 h-3.5" />New template</Button>}>
+            <SectionCard icon={FileSignature} title="Templates" actions={<Button size="sm" className="h-8 gap-1.5" onClick={() => setEditing({ ...EMPTY })}><Plus className="w-3.5 h-3.5" />New template</Button>}>
               {templates.length === 0 ? <Empty icon={FileSignature} title="No templates" /> : (
                 <div className="divide-y divide-slate-100">
                   {templates.map(t => (
@@ -272,7 +272,7 @@ const LettersPage = () => {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-                <Button onClick={saveTemplate} disabled={busy} className="bg-slate-800 hover:bg-slate-900">{busy ? 'Saving…' : 'Save template'}</Button>
+                <Button onClick={saveTemplate} disabled={busy}>{busy ? 'Saving…' : 'Save template'}</Button>
               </DialogFooter>
             </>
           )}

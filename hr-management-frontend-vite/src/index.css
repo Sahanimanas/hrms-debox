@@ -18,27 +18,27 @@ code {
 
 @layer base {
     :root {
-        --background: 210 40% 98%;
-        --foreground: 222 47% 11%;
+        /* Xeno HR redesign tokens (see tailwind.config.js for the named palette) */
+        --background: 228 38% 97%;          /* bg/canvas  #f6f7fb */
+        --foreground: 220 43% 11%;          /* text/primary #101828 */
         --card: 0 0% 100%;
-        --card-foreground: 222 47% 11%;
+        --card-foreground: 220 43% 11%;
         --popover: 0 0% 100%;
-        --popover-foreground: 222 47% 11%;
-        /* Brand: black (primary surfaces) + yellow (accent) */
-        --primary: 222 47% 11%;
+        --popover-foreground: 220 43% 11%;
+        --primary: 220 49% 8%;              /* navy #0b1220 */
         --primary-foreground: 0 0% 100%;
-        --secondary: 214 32% 91%;
-        --secondary-foreground: 222 47% 11%;
-        --muted: 214 32% 91%;
-        --muted-foreground: 215 16% 47%;
-        --accent: 45 96% 50%;
-        --accent-foreground: 222 47% 11%;
-        --destructive: 0 84% 60%;
+        --secondary: 218 31% 95%;           /* bg/subtle #eef1f6 */
+        --secondary-foreground: 220 43% 11%;
+        --muted: 218 31% 95%;
+        --muted-foreground: 216 18% 34%;    /* text/secondary #475467 */
+        --accent: 218 31% 95%;
+        --accent-foreground: 220 43% 11%;
+        --destructive: 4 86% 58%;           /* danger/solid #f04438 */
         --destructive-foreground: 0 0% 100%;
-        --border: 214 32% 91%;
-        --input: 214 32% 91%;
-        --ring: 45 96% 50%;
-        --radius: 0.75rem;
+        --border: 220 27% 91%;              /* border/default #e3e7ef */
+        --input: 220 27% 91%;
+        --ring: 48 96% 53%;                 /* accent/default #facc15 */
+        --radius: 14px;
     }
 }
 
@@ -53,4 +53,5 @@ code {
 
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Plus Jakarta Sans', sans-serif;
+    letter-spacing: -0.01em;
 }

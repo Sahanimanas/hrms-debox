@@ -123,7 +123,7 @@ const OrganizationsPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
@@ -151,7 +151,7 @@ const OrganizationsPage = () => {
             </Button>
             <Button
               onClick={handleAddNew}
-              className="bg-slate-800 hover:bg-slate-900 rounded-full"
+              className="rounded-full"
             >
               <Plus className="w-4 h-4 mr-2" />
               Add Organization
@@ -214,7 +214,7 @@ const OrganizationsPage = () => {
             <Building2 className="w-16 h-16 mx-auto text-slate-300 mb-4" />
             <h3 className="text-xl font-semibold text-slate-900 mb-2">No organizations yet</h3>
             <p className="text-slate-600 mb-6">Create your first organization to get started</p>
-            <Button onClick={handleAddNew} className="bg-slate-800 hover:bg-slate-900 rounded-full">
+            <Button onClick={handleAddNew} className="rounded-full">
               <Plus className="w-4 h-4 mr-2" />
               Add Organization
             </Button>
@@ -312,7 +312,7 @@ const OrganizationsPage = () => {
                 </Button>
                 <Button
                   type="submit"
-                  className="flex-1 bg-slate-800 hover:bg-slate-900"
+                  className="flex-1"
                 >
                   {editingOrg ? 'Update' : 'Create'}
                 </Button>

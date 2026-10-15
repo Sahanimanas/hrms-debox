@@ -234,7 +234,7 @@ export default function ClaimDialog({ open, onOpenChange, claim, categories, tri
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving} className="text-xs sm:text-sm h-8 sm:h-10">Cancel</Button>
-          <Button onClick={submit} disabled={saving || shownCheck?.status === 'blocked'} className="bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-8 sm:h-10">
+          <Button onClick={submit} disabled={saving || shownCheck?.status === 'blocked'} className="text-xs sm:text-sm h-8 sm:h-10">
             {saving ? (
               <>
                 <div className="animate-spin w-3 h-3 sm:w-4 sm:h-4 border-2 border-white border-t-transparent rounded-full mr-1.5 sm:mr-2"></div>

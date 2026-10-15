@@ -401,7 +401,7 @@ const ReportBuilderPage = () => {
               </div>
 
               <div className="flex flex-wrap gap-2 pt-1">
-                <Button onClick={preview} disabled={running || !ds} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9">
+                <Button onClick={preview} disabled={running || !ds} className="gap-2 h-9">
                   {running ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />} Run preview
                 </Button>
                 <Button variant="outline" onClick={downloadCsv} disabled={!ds} className="gap-2 h-9">
@@ -475,7 +475,7 @@ const ReportBuilderPage = () => {
                   </div>
                 </div>
               )}
-              <Button onClick={save} disabled={saving || !ds} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9">
+              <Button onClick={save} disabled={saving || !ds} className="gap-2 h-9">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} {id ? 'Update report' : 'Save report'}
               </Button>
             </CardContent>

@@ -127,7 +127,7 @@ export default function MyInterviewsPage() {
                       <div className="flex flex-wrap gap-1 sm:justify-end">
                         <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => ics(iv)}><FileDown className="w-3.5 h-3.5" /> Add to calendar</Button>
                         {iv.is_interviewer && iv.status !== 'cancelled' && (
-                          <Button size="sm" className="h-8 gap-1 bg-slate-800 hover:bg-slate-900" onClick={() => setScoring(iv)}>
+                          <Button size="sm" className="h-8 gap-1" onClick={() => setScoring(iv)}>
                             <Pencil className="w-3.5 h-3.5" /> {iv.my_scorecard_submitted ? 'Edit scorecard' : 'Submit scorecard'}
                           </Button>
                         )}

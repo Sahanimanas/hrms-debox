@@ -7,7 +7,7 @@ import GrievanceTracker from '../components/GrievanceTracker';
 export default function GrievanceTrackPage() {
   const [params] = useSearchParams();
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-start sm:items-center justify-center p-4">
+    <div className="min-h-screen bg-canvas flex items-start sm:items-center justify-center p-4">
       <Card className="w-full max-w-lg border-0 shadow-lg">
         <CardContent className="p-5 sm:p-8 space-y-5">
           <div className="flex items-center gap-3">

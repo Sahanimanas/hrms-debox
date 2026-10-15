@@ -60,7 +60,7 @@ function CertForm({ cert, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save'}</Button>
+        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
       </DialogFooter>
     </>
   );
@@ -120,7 +120,7 @@ const CertificationsPage = () => {
             { key: 'issuer', label: 'Issuer' }, { key: 'issued_date', label: 'Issued' }, { key: 'expiry_date', label: 'Expires' },
             { key: 'status', label: 'Status' }, { key: 'credential_id', label: 'Credential ID' }, { key: 'credential_url', label: 'Credential URL' },
           ])} />
-          <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setDialog({})}><Plus className="w-4 h-4 mr-1" /> Add certification</Button>
+          <Button size="sm" onClick={() => setDialog({})}><Plus className="w-4 h-4 mr-1" /> Add certification</Button>
         </>
       )}
     >

@@ -252,7 +252,7 @@ function EditorDialog({ open, initial, onClose, onSaved }) {
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button className="bg-slate-800 hover:bg-slate-900" onClick={save} disabled={saving}>
+          <Button onClick={save} disabled={saving}>
             {saving ? 'Saving…' : editing ? 'Save changes' : form.publish_at ? 'Schedule' : 'Publish'}
           </Button>
         </DialogFooter>

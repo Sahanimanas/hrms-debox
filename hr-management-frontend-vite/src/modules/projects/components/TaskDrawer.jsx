@@ -271,7 +271,7 @@ export default function TaskDrawer({ taskId, onClose, onChanged, onOpenTask }) {
                     <div className="space-y-2">
                       <Textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={8} placeholder="Add details, acceptance criteria, links… (supports **bold**, *italic*, - lists, [links](https://…))" autoFocus />
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={saveDesc} className="bg-slate-800 hover:bg-slate-900">Save</Button>
+                        <Button size="sm" onClick={saveDesc}>Save</Button>
                         <Button size="sm" variant="ghost" onClick={() => { setDesc(task.description || ''); setEditingDesc(false); }}>Cancel</Button>
                       </div>
                     </div>
@@ -405,7 +405,7 @@ export default function TaskDrawer({ taskId, onClose, onChanged, onOpenTask }) {
                           <SelectTrigger className="h-8 text-xs w-40"><SelectValue placeholder="@ Mention" /></SelectTrigger>
                           <SelectContent className="max-h-64">{people.map(p => <SelectItem key={p.email} value={p.email}>{p.name}</SelectItem>)}</SelectContent>
                         </Select>
-                        <Button size="sm" onClick={addComment} disabled={busy || !comment.trim()} className="bg-slate-800 hover:bg-slate-900">Comment</Button>
+                        <Button size="sm" onClick={addComment} disabled={busy || !comment.trim()}>Comment</Button>
                       </div>
                     </div>
                   </TabsContent>
@@ -420,7 +420,7 @@ export default function TaskDrawer({ taskId, onClose, onChanged, onOpenTask }) {
                         </div>
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-[11px] text-slate-500">Entries are added to your weekly HR timesheet as draft time.</p>
-                          <Button size="sm" onClick={logTime} disabled={busy} className="bg-slate-800 hover:bg-slate-900 shrink-0">Log time</Button>
+                          <Button size="sm" onClick={logTime} disabled={busy} className="shrink-0">Log time</Button>
                         </div>
                       </div>
                     )}

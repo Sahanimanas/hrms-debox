@@ -7,8 +7,10 @@
  * model cannot ask for someone else's data. Admin-only aggregate tools are
  * only offered to (and only executable by) admins and return counts only.
  *
- * Config (env):
- *   ANTHROPIC_API_KEY     required; without it the assistant reports { configured: false }
+ * Config: an admin sets the API key (stored encrypted), model, effort and an
+ * on/off switch on the AI Assistant settings page (platform_settings doc
+ * { key: 'ai_assistant' }). Environment variables, when set, take precedence:
+ *   ANTHROPIC_API_KEY     without a key (env or settings) the assistant reports { configured: false }
  *   ANTHROPIC_MODEL       default 'claude-opus-5-5'
  *   ANTHROPIC_EFFORT      default 'medium' (low | medium | high | xhigh | max)
  *   ANTHROPIC_FALLBACKS   'default' (server-side refusal fallback, the default) or 'off'
@@ -20,8 +22,18 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { getDB } = require('../../config/database');
 const { employeeUid, localParts } = require('../../utils/helpers');
+const { decryptSecret } = require('./common');
 
 const DEFAULT_MODEL = 'claude-opus-5-5';
+const DEFAULT_EFFORT = 'medium';
+
+/** Models offered on the settings page. `fallbacks`: supports server-side refusal fallback ("default" form). */
+const MODELS = [
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', note: 'Most capable for everyday HR questions (recommended)', fallbacks: true },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', note: 'Faster and lower cost', fallbacks: true },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', note: 'Fastest and cheapest', fallbacks: false },
+];
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const MAX_TOOL_ROUNDS = 6;
 const MAX_CONTEXT_MESSAGES = 80;   // API context is reset (not edited) beyond this
 const MAX_DISPLAY_MESSAGES = 100;
@@ -35,14 +47,40 @@ function setClientFactory(fn) {
   clientFactory = fn;
 }
 
-function getClient() {
-  if (clientFactory) return clientFactory();
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// ============= SETTINGS =============
+
+const SETTINGS_KEY = 'ai_assistant';
+const SETTINGS_TTL_MS = 30 * 1000;
+let stored = null;     // cached platform_settings doc
+let storedAt = 0;
+
+/** Reload the admin's settings (cached for 30s; force after a save). Call before using the sync getters below. */
+async function refreshSettings({ force = false, db } = {}) {
+  if (!force && Date.now() - storedAt < SETTINGS_TTL_MS) return stored;
+  try {
+    stored = await (db || getDB()).collection('platform_settings').findOne({ key: SETTINGS_KEY }, { projection: { _id: 0 } });
+  } catch (error) {
+    console.error('[assistant] could not load settings:', error.message);
+  }
+  storedAt = Date.now();
+  return stored;
 }
 
-const isConfigured = () => !!(clientFactory || process.env.ANTHROPIC_API_KEY);
-const modelName = () => process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+const enabled = () => stored?.enabled !== false;
+const storedApiKey = () => (stored?.api_key_enc ? decryptSecret(stored.api_key_enc) : null);
+const apiKey = () => process.env.ANTHROPIC_API_KEY || storedApiKey();
+const modelName = () => process.env.ANTHROPIC_MODEL || stored?.model || DEFAULT_MODEL;
+const effortLevel = () => process.env.ANTHROPIC_EFFORT || stored?.effort || DEFAULT_EFFORT;
+const supportsFallbacks = (model) => MODELS.find((m) => m.id === model)?.fallbacks ?? true;
+
+function getClient() {
+  if (clientFactory) return clientFactory();
+  if (!enabled()) return null;
+  const key = apiKey();
+  return key ? new Anthropic({ apiKey: key }) : null;
+}
+
+const isConfigured = () => !!clientFactory || (enabled() && !!apiKey());
 
 // ============= HELPERS =============
 
@@ -333,9 +371,9 @@ async function chat({ db = getDB(), client, ctx, history = [], message }) {
       ],
       tools,
       messages,
-      output_config: { effort: process.env.ANTHROPIC_EFFORT || 'medium' }
+      output_config: { effort: effortLevel() }
     };
-    if ((process.env.ANTHROPIC_FALLBACKS || 'default') !== 'off') {
+    if ((process.env.ANTHROPIC_FALLBACKS || 'default') !== 'off' && supportsFallbacks(params.model)) {
       params.betas = ['server-side-fallback-2026-07-01'];
       params.fallbacks = 'default';
     }
@@ -392,6 +430,15 @@ module.exports = {
   getClient,
   isConfigured,
   modelName,
+  effortLevel,
+  refreshSettings,
+  storedApiKey,
+  enabled,
+  MODELS,
+  EFFORTS,
+  DEFAULT_MODEL,
+  DEFAULT_EFFORT,
+  SETTINGS_KEY,
   toolsFor,
   runTool,
   chat

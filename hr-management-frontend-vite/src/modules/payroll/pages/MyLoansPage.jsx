@@ -80,7 +80,7 @@ export default function MyLoansPage() {
       actions={(
         <>
           <Button variant="outline" onClick={exportRows} disabled={!loans.length} className="gap-2 h-9 sm:h-10"><Download className="w-4 h-4" /> Export CSV</Button>
-          <Button onClick={() => setShow(true)} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9 sm:h-10"><Plus className="w-4 h-4" /> New request</Button>
+          <Button onClick={() => setShow(true)} className="gap-2 h-9 sm:h-10"><Plus className="w-4 h-4" /> New request</Button>
         </>
       )}
     >
@@ -152,7 +152,7 @@ export default function MyLoansPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShow(false)}>Cancel</Button>
-            <Button onClick={submit} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Submitting…' : 'Submit'}</Button>
+            <Button onClick={submit} disabled={saving}>{saving ? 'Submitting…' : 'Submit'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

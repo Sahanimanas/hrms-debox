@@ -169,7 +169,7 @@ export default function MyPayslipsPage() {
               <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
               <SelectContent>{fys.map(f => <SelectItem key={f} value={f}>FY {f}</SelectItem>)}</SelectContent>
             </Select>
-            <Button onClick={downloadForm16} disabled={busy === 'form16'} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9">
+            <Button onClick={downloadForm16} disabled={busy === 'form16'} className="gap-2 h-9">
               <Download className="w-4 h-4" /> {busy === 'form16' ? 'Preparing…' : 'Download'}
             </Button>
           </div>
@@ -194,7 +194,7 @@ export default function MyPayslipsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
-            <Button onClick={saveDetails} disabled={busy === 'details'} className="bg-slate-800 hover:bg-slate-900">{busy === 'details' ? 'Saving…' : 'Save'}</Button>
+            <Button onClick={saveDetails} disabled={busy === 'details'}>{busy === 'details' ? 'Saving…' : 'Save'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

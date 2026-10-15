@@ -137,7 +137,7 @@ export default function SurveyForm({ surveyId, onClose, onSubmitted }) {
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={onClose}>Close</Button>
               {!survey.responded && (
-                <Button className="bg-slate-800 hover:bg-slate-900" onClick={submit} disabled={submitting}>{submitting ? 'Submitting…' : 'Submit response'}</Button>
+                <Button onClick={submit} disabled={submitting}>{submitting ? 'Submitting…' : 'Submit response'}</Button>
               )}
             </DialogFooter>
           </>

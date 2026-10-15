@@ -6,6 +6,7 @@ const { authenticate } = require('../middleware/auth');
 const { requireRole } = require('../middleware/roleCheck');
 const { UserRole } = require('../models/schemas');
 const { hashPassword } = require('../utils/helpers');
+const { passwordPolicyMessage } = require('../utils/passwordPolicy');
 const { sendEmailNotification } = require('../services/emailService');
 const { generatePasswordResetEmail, generateBulkPasswordResetEmail } = require('../utils/emailTemplates');
 const { recordAuthEvent } = require('../services/platform/audit');
@@ -194,8 +195,9 @@ router.post('/reset', async (req, res) => {
       return res.status(400).json({ detail: 'Token is required' });
     }
 
-    if (!new_password || new_password.length < 6) {
-      return res.status(400).json({ detail: 'Password must be at least 6 characters' });
+    const policyProblem = passwordPolicyMessage(new_password || '');
+    if (policyProblem) {
+      return res.status(400).json({ detail: policyProblem, errors: [{ field: 'new_password', message: policyProblem }] });
     }
 
     // Find and validate token

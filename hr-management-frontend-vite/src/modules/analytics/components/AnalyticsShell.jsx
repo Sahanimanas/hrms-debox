@@ -21,7 +21,7 @@ const AnalyticsShell = ({ icon, title, subtitle, actions, children }) => {
   const tabs = ANALYTICS_TABS.filter(t => t.roles.includes(user?.role));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">

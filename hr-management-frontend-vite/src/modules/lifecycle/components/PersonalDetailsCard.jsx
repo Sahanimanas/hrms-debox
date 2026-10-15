@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import PhoneInput from '@/components/PhoneInput';
+import { phoneError } from '@/lib/phone';
 import { API, errMsg, fmtDate, humanize, REQUEST_STATUS, todayYmd } from '../lib';
 import { SectionCard, Loading, StatusPill, NativeSelect } from './ui';
 
@@ -61,6 +63,8 @@ const PersonalDetailsCard = () => {
       if (next && next !== prev) changes[f.key] = next;
     }
     if (!Object.keys(changes).length) return toast.error('Change at least one field');
+    const badPhone = fields.find(f => f.type === 'phone' && changes[f.key] && phoneError(changes[f.key]));
+    if (badPhone) return toast.error(`${badPhone.label}: ${phoneError(changes[badPhone.key])}`);
     setSaving(true);
     try {
       await api.post(`${API}/profile-requests`, { changes, reason: reason.trim() || null });
@@ -136,6 +140,8 @@ const PersonalDetailsCard = () => {
                     <option value="">—</option>
                     {f.options.map(o => <option key={o} value={o}>{f.key === 'blood_group' ? o : humanize(o)}</option>)}
                   </NativeSelect>
+                ) : f.type === 'phone' ? (
+                  <PhoneInput id={`pf-${f.key}`} value={form[f.key] ?? ''} onChange={(v) => setForm({ ...form, [f.key]: v })} />
                 ) : f.type === 'textarea' ? (
                   <Textarea id={`pf-${f.key}`} rows={2} value={form[f.key] ?? ''} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} />
                 ) : (
@@ -156,7 +162,7 @@ const PersonalDetailsCard = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={submit} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Sending…' : 'Send for approval'}</Button>
+            <Button onClick={submit} disabled={saving}>{saving ? 'Sending…' : 'Send for approval'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

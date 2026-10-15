@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { Button } from '@/components/ui/button';
 import { useT } from '@/lib/i18n';
 import { errorMessage, MS_SSO_STATE_KEY as MS_STATE_KEY } from '../lib';
 
@@ -53,7 +54,7 @@ async function setupGoogle(clientId, containerRef, onResultRef) {
     if (el) {
       el.innerHTML = '';
       window.google.accounts.id.renderButton(el, {
-        theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with', width: Math.min(el.offsetWidth || 320, 400),
+        theme: 'outline', size: 'large', shape: 'rectangular', text: 'continue_with', width: Math.min(el.offsetWidth || 320, 400),
       });
     }
   } catch (error) {
@@ -118,23 +119,20 @@ const SsoButtons = ({ onResult, disabled = false }) => {
   if (!config || (!config.google?.enabled && !config.microsoft?.enabled)) return null;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3 text-xs text-slate-400">
-        <div className="h-px flex-1 bg-slate-200" />
-        <span>{t('or continue with')}</span>
-        <div className="h-px flex-1 bg-slate-200" />
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-line" />
+        <span className="text-xs font-medium leading-4 text-ink-muted">{t('or')}</span>
+        <div className="h-px flex-1 bg-line" />
       </div>
-      {config.google?.enabled && <div ref={googleRef} className="flex justify-center min-h-[44px]" aria-label="Sign in with Google" />}
-      {config.microsoft?.enabled && (
-        <button
-          type="button"
-          onClick={startMicrosoft}
-          disabled={disabled}
-          className="w-full flex items-center justify-center gap-2 h-10 rounded-full border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-        >
-          <MicrosoftLogo /> {t('Sign in with Microsoft')}
-        </button>
-      )}
+      <div className="flex flex-col gap-3">
+        {config.google?.enabled && <div ref={googleRef} className="flex min-h-[44px] justify-center" aria-label="Sign in with Google" />}
+        {config.microsoft?.enabled && (
+          <Button type="button" variant="outline" onClick={startMicrosoft} disabled={disabled} className="w-full">
+            <MicrosoftLogo /> {t('Sign in with Microsoft')}
+          </Button>
+        )}
+      </div>
     </div>
   );
 };

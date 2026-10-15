@@ -252,7 +252,7 @@ const OnboardingAdminPage = () => {
     <SectionCard
       icon={ClipboardCheck}
       title="Checklist templates"
-      actions={<Button size="sm" className="h-8 gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setEditing({ ...EMPTY_TEMPLATE, tasks: [...EMPTY_TEMPLATE.tasks] })}><Plus className="w-3.5 h-3.5" />New template</Button>}
+      actions={<Button size="sm" className="h-8 gap-1.5" onClick={() => setEditing({ ...EMPTY_TEMPLATE, tasks: [...EMPTY_TEMPLATE.tasks] })}><Plus className="w-3.5 h-3.5" />New template</Button>}
     >
       {templates.length === 0 ? <Loading /> : (
         <div className="divide-y divide-slate-100">
@@ -280,7 +280,7 @@ const OnboardingAdminPage = () => {
     <PageShell>
       <PageHeader icon={ClipboardCheck} title="Onboarding" subtitle={isAdmin ? 'Checklists for new joiners, templates and settings' : "Your team's onboarding progress"}>
         {isAdmin && (
-          <Button onClick={() => setStartOpen(true)} className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto">
+          <Button onClick={() => setStartOpen(true)} className="gap-2 w-full sm:w-auto">
             <Plus className="w-4 h-4" />Start onboarding
           </Button>
         )}
@@ -330,7 +330,7 @@ const OnboardingAdminPage = () => {
                         </NativeSelect>
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={submitAddTask}>Add task</Button>
+                        <Button size="sm" onClick={submitAddTask}>Add task</Button>
                         <Button size="sm" variant="outline" onClick={() => setAddTask(null)}>Cancel</Button>
                       </div>
                     </div>
@@ -370,7 +370,7 @@ const OnboardingAdminPage = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setStartOpen(false)}>Cancel</Button>
-            <Button onClick={startOnboarding} disabled={busy} className="bg-slate-800 hover:bg-slate-900">{busy ? 'Starting…' : 'Start'}</Button>
+            <Button onClick={startOnboarding} disabled={busy}>{busy ? 'Starting…' : 'Start'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -426,7 +426,7 @@ const OnboardingAdminPage = () => {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-                <Button onClick={saveTemplate} disabled={busy} className="bg-slate-800 hover:bg-slate-900">{busy ? 'Saving…' : 'Save template'}</Button>
+                <Button onClick={saveTemplate} disabled={busy}>{busy ? 'Saving…' : 'Save template'}</Button>
               </DialogFooter>
             </>
           )}

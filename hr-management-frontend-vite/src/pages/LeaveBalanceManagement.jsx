@@ -248,7 +248,7 @@ const LeaveBalanceManagement = () => {
           </Button>
           <Button
             onClick={() => setBulkDialogOpen(true)}
-            className="bg-slate-800 hover:bg-slate-900 rounded-full"
+            className="rounded-full"
           >
             <Users className="w-4 h-4 mr-2" />
             Bulk Update
@@ -521,7 +521,7 @@ const LeaveBalanceManagement = () => {
                 </Button>
                 <Button
                   type="submit"
-                  className="flex-1 bg-slate-800 hover:bg-slate-900"
+                  className="flex-1"
                   disabled={submitting}
                 >
                   {submitting ? 'Updating...' : 'Update Balance'}
@@ -631,7 +631,7 @@ const LeaveBalanceManagement = () => {
               </Button>
               <Button
                 type="submit"
-                className="flex-1 bg-slate-800 hover:bg-slate-900"
+                className="flex-1"
                 disabled={submitting}
               >
                 {submitting ? 'Updating...' : 'Update All'}
@@ -688,7 +688,7 @@ const LeaveBalanceManagement = () => {
               </Button>
               <Button
                 type="submit"
-                className="flex-1 bg-slate-800 hover:bg-slate-900"
+                className="flex-1"
                 disabled={submitting}
               >
                 {submitting ? 'Initializing...' : 'Initialize All'}
@@ -750,7 +750,7 @@ const LeaveBalanceManagement = () => {
               </Button>
               <Button
                 type="submit"
-                className="flex-1 bg-slate-800 hover:bg-slate-900"
+                className="flex-1"
                 disabled={submitting}
               >
                 {submitting ? 'Running...' : 'Run Credit'}

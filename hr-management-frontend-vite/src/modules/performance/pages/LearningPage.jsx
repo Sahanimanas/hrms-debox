@@ -73,7 +73,7 @@ function CourseForm({ course, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">Save</Button>
+        <Button onClick={save} disabled={saving}>Save</Button>
       </DialogFooter>
     </>
   );
@@ -120,7 +120,7 @@ function AssignForm({ course, isAdmin, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">Assign</Button>
+        <Button onClick={save} disabled={saving}>Assign</Button>
       </DialogFooter>
     </>
   );
@@ -248,7 +248,7 @@ function Catalog({ isAdmin, lead, onChanged }) {
             { key: 'title', label: 'Title' }, { key: 'provider', label: 'Provider' }, { key: 'category', label: 'Category' }, { key: 'duration_hours', label: 'Hours' },
             { label: 'Mandatory', value: r => (r.mandatory ? 'yes' : 'no') }, { key: 'link', label: 'Link' }, { key: 'assigned_count', label: 'Assigned' }, { key: 'completed_count', label: 'Completed' },
           ])} />
-          {isAdmin && <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setDialog({ kind: 'course' })}><Plus className="w-4 h-4 mr-1" /> New course</Button>}
+          {isAdmin && <Button size="sm" onClick={() => setDialog({ kind: 'course' })}><Plus className="w-4 h-4 mr-1" /> New course</Button>}
         </>
       )}
       bodyClassName="p-3 sm:p-5"

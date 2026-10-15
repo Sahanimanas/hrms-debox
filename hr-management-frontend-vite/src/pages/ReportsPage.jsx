@@ -107,7 +107,7 @@ const ReportsPage = () => {
   const s = report.summary;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         {/* Header */}
         <div className="flex items-center gap-2 sm:gap-3">
@@ -218,7 +218,7 @@ const ReportsPage = () => {
                 </Select>
               </div>
 
-              <Button onClick={exportToCSV} disabled={loading || !rows.length} className="w-full bg-slate-800 hover:bg-slate-900">
+              <Button onClick={exportToCSV} disabled={loading || !rows.length} className="w-full">
                 <Download className="w-4 h-4 mr-2" />
                 Export CSV
               </Button>

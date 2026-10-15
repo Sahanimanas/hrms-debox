@@ -149,7 +149,7 @@ function ReviewEditor({ appraisal, kind, onSaved }) {
       </div>
       <div className="flex flex-wrap gap-2 justify-end">
         <Button variant="outline" onClick={() => save(false)} disabled={saving}>Save draft</Button>
-        <Button className="bg-slate-800 hover:bg-slate-900" onClick={() => save(true)} disabled={saving}>Submit review</Button>
+        <Button onClick={() => save(true)} disabled={saving}>Submit review</Button>
       </div>
     </div>
   );
@@ -262,7 +262,7 @@ function PeerSection({ appraisal, onChanged }) {
           <PeoplePicker people={candidates} selected={selected} onChange={setSelected} max={remaining} />
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button className="bg-slate-800 hover:bg-slate-900" onClick={nominate}>Save</Button>
+            <Button onClick={nominate}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -355,7 +355,7 @@ function CalibrateForm({ appraisal, onDone }) {
       <div className="flex flex-col sm:flex-row gap-2">
         <Input type="number" min="1" max="5" step="0.1" value={rating} onChange={(e) => setRating(e.target.value)} className="sm:w-28" aria-label="Final rating" />
         <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for the adjustment" />
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">Save</Button>
+        <Button onClick={save} disabled={saving}>Save</Button>
       </div>
     </div>
   );
@@ -478,7 +478,7 @@ function PeerFeedbackForm({ item, onClose, onSaved }) {
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Close</Button>
         {!readOnly && <Button variant="outline" onClick={() => save(false)} disabled={saving}>Save draft</Button>}
-        {!readOnly && <Button className="bg-slate-800 hover:bg-slate-900" onClick={() => save(true)} disabled={saving}>Submit</Button>}
+        {!readOnly && <Button onClick={() => save(true)} disabled={saving}>Submit</Button>}
       </DialogFooter>
     </>
   );
@@ -615,7 +615,7 @@ function ConfigForm({ config, onSaved }) {
         <Switch checked={form.peer_feedback_enabled} disabled={locked} onCheckedChange={(v) => setForm(f => ({ ...f, peer_feedback_enabled: v }))} />
         Enable 360° peer feedback
       </label>
-      <div className="flex justify-end"><Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save settings'}</Button></div>
+      <div className="flex justify-end"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</Button></div>
     </div>
   );
 }
@@ -659,7 +659,7 @@ function AdminPanel({ cycleId, onOpen }) {
       <SectionCard icon={Award} title="Phase" bodyClassName="p-3 sm:p-5 space-y-3">
         <PhaseStepper phase={c.phase} peerEnabled={c.peer_feedback_enabled} />
         {c.next_phase && c.configured && (
-          <Button onClick={() => advance(false)} disabled={busy} className="bg-slate-800 hover:bg-slate-900">
+          <Button onClick={() => advance(false)} disabled={busy}>
             {c.phase === 'setup' ? 'Start self reviews' : c.next_phase === 'released' ? 'Release results' : `Move to ${PHASE_LABELS[c.next_phase]}`}
           </Button>
         )}

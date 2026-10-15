@@ -93,7 +93,7 @@ function PollCard({ poll, onChange }) {
           </p>
           <div className="flex gap-2">
             {canVote && (
-              <Button size="sm" className="bg-slate-800 hover:bg-slate-900 h-8" disabled={!selected.length || busy}
+              <Button size="sm" className="h-8" disabled={!selected.length || busy}
                 onClick={() => run(() => api.post(`${API}/polls/${poll.id}/vote`, { option_ids: selected }), 'Vote recorded')}>
                 Vote
               </Button>
@@ -173,7 +173,7 @@ function CreatePollDialog({ onClose, onCreated }) {
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button className="bg-slate-800 hover:bg-slate-900" onClick={save} disabled={saving}>{saving ? 'Creating…' : 'Create poll'}</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Creating…' : 'Create poll'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

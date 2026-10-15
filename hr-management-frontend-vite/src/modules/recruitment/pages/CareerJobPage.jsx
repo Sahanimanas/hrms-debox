@@ -8,6 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import api from '@/lib/api';
+import PhoneInput from '@/components/PhoneInput';
+import { phoneError } from '@/lib/phone';
 import CareersLayout from '../components/CareersLayout';
 import Markdown from '../components/Markdown';
 import { LoadingState, EmptyState, ErrorState } from '../components/Common';
@@ -49,7 +51,8 @@ export default function CareerJobPage() {
     const next = {};
     if (form.name.trim().length < 2) next.name = 'Please enter your full name';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(form.email.trim())) next.email = 'Enter a valid email address';
-    if (!/^\+?[0-9()\s.-]{7,20}$/.test(form.phone.trim())) next.phone = 'Enter a valid phone number';
+    const phoneProblem = phoneError(form.phone, { required: true });
+    if (phoneProblem) next.phone = phoneProblem;
     if (form.linkedin_url.trim() && !/^https?:\/\/([a-z0-9-]+\.)*linkedin\.com\//i.test(form.linkedin_url.trim())) next.linkedin_url = 'Enter a LinkedIn profile URL';
     const rp = resumeProblem(resume);
     if (rp) next.resume = rp;
@@ -160,7 +163,7 @@ export default function CareerJobPage() {
                     <Input id="email" type="email" value={form.email} onChange={set('email')} maxLength={254} autoComplete="email" required />
                   </Field>
                   <Field id="phone" label="Phone" error={errors.phone}>
-                    <Input id="phone" type="tel" value={form.phone} onChange={set('phone')} maxLength={20} autoComplete="tel" placeholder="+91 98765 43210" required />
+                    <PhoneInput id="phone" value={form.phone} onChange={(phone) => setForm(f => ({ ...f, phone }))} required showError={!!errors.phone} hideErrorText />
                   </Field>
                   <Field id="linkedin" label="LinkedIn profile (optional)" error={errors.linkedin_url}>
                     <Input id="linkedin" type="url" value={form.linkedin_url} onChange={set('linkedin_url')} maxLength={300} placeholder="https://www.linkedin.com/in/…" />

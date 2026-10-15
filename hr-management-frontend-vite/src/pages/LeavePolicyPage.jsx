@@ -717,7 +717,7 @@ const LeavePolicyPage = () => {
                   <Button
                     type="submit"
                     data-testid="save-policy-btn"
-                    className="bg-slate-800 hover:bg-slate-900 gap-2"
+                    className="gap-2"
                     disabled={saving}
                   >
                     <Save className="w-4 h-4" />

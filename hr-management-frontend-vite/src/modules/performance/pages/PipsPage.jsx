@@ -84,7 +84,7 @@ function PipForm({ pip, team, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save'}</Button>
+        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
       </DialogFooter>
     </>
   );
@@ -127,7 +127,7 @@ function CheckInForm({ pip, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">Save check-in</Button>
+        <Button onClick={save} disabled={saving}>Save check-in</Button>
       </DialogFooter>
     </>
   );
@@ -163,7 +163,7 @@ function OutcomeForm({ pip, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">Save</Button>
+        <Button onClick={save} disabled={saving}>Save</Button>
       </DialogFooter>
     </>
   );
@@ -214,7 +214,7 @@ function PipDetail({ id, onChanged }) {
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => setDialog('checkin')}><CalendarCheck className="w-3.5 h-3.5 mr-1" /> Check-in</Button>
             <Button size="sm" variant="outline" onClick={() => setDialog('edit')}><Pencil className="w-3.5 h-3.5 mr-1" /> Edit</Button>
-            <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setDialog('outcome')}><Flag className="w-3.5 h-3.5 mr-1" /> Outcome</Button>
+            <Button size="sm" onClick={() => setDialog('outcome')}><Flag className="w-3.5 h-3.5 mr-1" /> Outcome</Button>
           </div>
         )}
       </div>
@@ -318,7 +318,7 @@ const PipsPage = () => {
             { label: 'Objectives met', value: r => `${r.objectives_met}/${r.objectives.length}` }, { label: 'Check-ins', value: r => r.check_ins.length },
             { label: 'Acknowledged', value: r => (r.acknowledgement ? 'yes' : 'no') },
           ])} />
-          {lead && <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setCreating(true)}><Plus className="w-4 h-4 mr-1" /> New PIP</Button>}
+          {lead && <Button size="sm" onClick={() => setCreating(true)}><Plus className="w-4 h-4 mr-1" /> New PIP</Button>}
         </>
       )}
     >

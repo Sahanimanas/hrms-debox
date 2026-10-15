@@ -128,7 +128,7 @@ const YearEndPage = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -153,7 +153,7 @@ const YearEndPage = () => {
             <Button
               onClick={() => setConfirm({ open: true, force: false, message: '' })}
               disabled={!canRun || loading || running || !preview?.pending_count}
-              className="bg-slate-800 hover:bg-slate-900 gap-2 h-9 whitespace-nowrap"
+              className="gap-2 h-9 whitespace-nowrap"
               title={!canRun ? `Only ${thisYear - 1} can be closed` : undefined}
             >
               <PlayCircle className="w-4 h-4" /> Run year-end
@@ -383,7 +383,7 @@ const YearEndPage = () => {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setConfirm({ open: false, force: false, message: '' })} disabled={running}>Cancel</Button>
-            <Button onClick={() => runYearEnd(confirm.force)} disabled={running} className={confirm.force ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-800 hover:bg-slate-900'}>
+            <Button onClick={() => runYearEnd(confirm.force)} disabled={running} className={confirm.force ? 'bg-amber-600 hover:bg-amber-700' : ''}>
               {running ? 'Running…' : confirm.force ? 'Run anyway' : 'Run year-end'}
             </Button>
           </DialogFooter>

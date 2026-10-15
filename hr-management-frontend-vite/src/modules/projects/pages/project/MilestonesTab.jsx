@@ -52,7 +52,7 @@ export default function MilestonesTab({ project, milestones, tasks, editable, on
 
   return (
     <div className="space-y-4 max-w-4xl">
-      {editable && <Button className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setEditing({ name: '', description: '', due_date: '' })}><Plus className="w-4 h-4" /> New milestone</Button>}
+      {editable && <Button className="gap-1.5" onClick={() => setEditing({ name: '', description: '', due_date: '' })}><Plus className="w-4 h-4" /> New milestone</Button>}
       {milestones.length === 0 ? <Empty icon={Diamond} title="No milestones yet">Milestones mark key dates — releases, launches, deliverables. Link tasks to them to track progress.</Empty> : (
         <div className="space-y-3">
           {milestones.map(m => {
@@ -124,7 +124,7 @@ export default function MilestonesTab({ project, milestones, tasks, editable, on
           )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button onClick={save} disabled={!editing?.name?.trim()} className="bg-slate-800 hover:bg-slate-900">Save</Button>
+            <Button onClick={save} disabled={!editing?.name?.trim()}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

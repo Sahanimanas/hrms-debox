@@ -150,7 +150,7 @@ export default function InterviewDialog({ open, candidate, interview, onClose, o
         )}
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : interview ? 'Save changes' : 'Schedule'}</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : interview ? 'Save changes' : 'Schedule'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

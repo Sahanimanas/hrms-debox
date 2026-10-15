@@ -106,7 +106,7 @@ function FileGrievance({ onFiled }) {
             <Switch checked={form.anonymous} onCheckedChange={v => set('anonymous', v)} className="mt-0.5" />
             <span>File anonymously<span className="block text-xs text-slate-500">Your identity is not stored. Use the tracking code to follow up.</span></span>
           </label>
-          <Button className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto" onClick={submit} disabled={saving}><Send className="w-4 h-4" />{saving ? 'Filing…' : 'File grievance'}</Button>
+          <Button className="gap-2 w-full sm:w-auto" onClick={submit} disabled={saving}><Send className="w-4 h-4" />{saving ? 'Filing…' : 'File grievance'}</Button>
         </div>
       </CardContent>
     </Card>
@@ -219,7 +219,7 @@ function CaseDialog({ id, onClose, onChanged }) {
               ) : <p className="text-xs text-slate-500">No notes yet</p>}
               <div className="flex flex-col sm:flex-row gap-2">
                 <Textarea rows={2} value={note} maxLength={5000} onChange={e => setNote(e.target.value)} placeholder="Add an investigation note" className="bg-white" />
-                <Button size="sm" className="gap-1 bg-slate-800 hover:bg-slate-900 sm:self-end" disabled={busy || !note.trim()} onClick={addNote}><StickyNote className="w-4 h-4" />Add</Button>
+                <Button size="sm" className="gap-1 sm:self-end" disabled={busy || !note.trim()} onClick={addNote}><StickyNote className="w-4 h-4" />Add</Button>
               </div>
             </div>
 

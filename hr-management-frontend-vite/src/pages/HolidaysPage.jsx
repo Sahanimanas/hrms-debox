@@ -630,7 +630,7 @@ const HolidaysPage = () => {
           {isAdmin && (
             <Button
               onClick={() => setRecurringDialogOpen(true)}
-              className="bg-slate-800 hover:bg-slate-900 text-white rounded-lg sm:rounded-full gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9 px-2.5 sm:px-4 ml-auto"
+              className="text-white rounded-lg sm:rounded-full gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9 px-2.5 sm:px-4 ml-auto"
             >
               <Repeat className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               <span className="hidden sm:inline">Add Recurring</span>
@@ -917,7 +917,7 @@ const HolidaysPage = () => {
               <Button variant="outline" onClick={() => setAddDialogOpen(false)} className="flex-1 text-xs sm:text-sm h-8 sm:h-10">
                 Cancel
               </Button>
-              <Button onClick={handleCreateHoliday} className="flex-1 bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-8 sm:h-10">
+              <Button onClick={handleCreateHoliday} className="flex-1 text-xs sm:text-sm h-8 sm:h-10">
                 Add Holiday
               </Button>
             </div>
@@ -996,7 +996,7 @@ const HolidaysPage = () => {
                 <Button variant="outline" onClick={() => setEditDialogOpen(false)} className="flex-1 text-xs sm:text-sm h-8 sm:h-10">
                   Cancel
                 </Button>
-                <Button onClick={handleUpdateHoliday} className="flex-1 bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-8 sm:h-10">
+                <Button onClick={handleUpdateHoliday} className="flex-1 text-xs sm:text-sm h-8 sm:h-10">
                   Save
                 </Button>
               </div>
@@ -1183,7 +1183,7 @@ const HolidaysPage = () => {
               <Button variant="outline" onClick={() => setRecurringDialogOpen(false)} className="flex-1 text-xs sm:text-sm h-8 sm:h-10">
                 Cancel
               </Button>
-              <Button onClick={handleCreateRecurring} className="flex-1 bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-8 sm:h-10">
+              <Button onClick={handleCreateRecurring} className="flex-1 text-xs sm:text-sm h-8 sm:h-10">
                 Create
               </Button>
             </div>

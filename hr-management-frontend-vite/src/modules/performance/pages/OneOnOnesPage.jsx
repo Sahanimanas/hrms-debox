@@ -106,7 +106,7 @@ function MeetingForm({ meeting, team, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save'}</Button>
+        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
       </DialogFooter>
     </>
   );
@@ -133,7 +133,7 @@ function NotesEditor({ meeting, field, label, hint, icon, onSaved, disabled }) {
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <Label className="flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" /> {label}</Label>
-        {dirty && !disabled && <Button size="sm" onClick={save} disabled={saving} className="h-7 bg-slate-800 hover:bg-slate-900">Save</Button>}
+        {dirty && !disabled && <Button size="sm" onClick={save} disabled={saving} className="h-7">Save</Button>}
       </div>
       <Textarea rows={4} value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} />
       {hint && <p className="text-[11px] text-slate-500">{hint}</p>}
@@ -313,7 +313,7 @@ const OneOnOnesPage = () => {
             { key: 'manager_name', label: 'Manager' }, { key: 'employee_name', label: 'Employee' }, { key: 'status', label: 'Status' },
             { key: 'recurrence', label: 'Repeats' }, { label: 'Open action items', value: r => (r.action_items || []).filter(a => !a.done).length },
           ])} />
-          {lead && <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setCreating(true)}><Plus className="w-4 h-4 mr-1" /> Schedule 1:1</Button>}
+          {lead && <Button size="sm" onClick={() => setCreating(true)}><Plus className="w-4 h-4 mr-1" /> Schedule 1:1</Button>}
         </>
       )}
     >

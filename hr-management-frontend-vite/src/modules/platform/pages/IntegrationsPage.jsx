@@ -105,7 +105,7 @@ const CalendarTab = () => {
               <EmptyBlock icon={CalendarSync} title="No calendar feed yet" />
             )}
             <div className="flex flex-wrap gap-2">
-              <Button onClick={create} disabled={busy} className="bg-slate-800 hover:bg-slate-900 gap-1.5">
+              <Button onClick={create} disabled={busy} className="gap-1.5">
                 {feed?.active ? <><RefreshCw className="w-4 h-4" /> New link</> : <><Link2 className="w-4 h-4" /> Create feed link</>}
               </Button>
               {feed?.active && (
@@ -230,7 +230,7 @@ const ChatTab = () => {
           <CardTitle className="text-base sm:text-lg flex items-center gap-2">
             <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" /> Slack & Microsoft Teams
           </CardTitle>
-          <Button size="sm" onClick={() => openDialog(null)} className="bg-slate-800 hover:bg-slate-900 gap-1.5"><Plus className="w-4 h-4" /> Add</Button>
+          <Button size="sm" onClick={() => openDialog(null)} className="gap-1.5"><Plus className="w-4 h-4" /> Add</Button>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -310,7 +310,7 @@ const ChatTab = () => {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-              <Button type="submit" disabled={saving || !form.name || (!dialog?.target && !form.url) || form.events.length === 0} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save'}</Button>
+              <Button type="submit" disabled={saving || !form.name || (!dialog?.target && !form.url) || form.events.length === 0}>{saving ? 'Saving…' : 'Save'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -394,7 +394,7 @@ const AccountingTab = () => {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => download('tally')} disabled={!journal || empty} className="bg-slate-800 hover:bg-slate-900 gap-1.5"><Download className="w-4 h-4" /> Tally XML</Button>
+          <Button onClick={() => download('tally')} disabled={!journal || empty} className="gap-1.5"><Download className="w-4 h-4" /> Tally XML</Button>
           <Button onClick={() => download('zoho')} disabled={!journal || empty} variant="outline" className="gap-1.5"><Download className="w-4 h-4" /> Zoho Books CSV</Button>
           {journal?.lines?.length > 0 && (
             <Button variant="ghost" className="gap-1.5" onClick={() => exportCsv(`journal-${month}`, journal.lines, [

@@ -98,7 +98,7 @@ function WishDialog({ target, onClose, onSent }) {
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button className="bg-slate-800 hover:bg-slate-900 gap-2" onClick={send} disabled={sending}><Send className="w-4 h-4" />{sending ? 'Sending…' : 'Send wish'}</Button>
+          <Button className="gap-2" onClick={send} disabled={sending}><Send className="w-4 h-4" />{sending ? 'Sending…' : 'Send wish'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -52,7 +52,7 @@ export function StageReasonDialog({ pending, onClose, onDone }) {
         </Field>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving} className={pending?.stage === 'rejected' ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-800 hover:bg-slate-900'}>
+          <Button onClick={submit} disabled={saving} className={pending?.stage === 'rejected' ? 'bg-red-600 hover:bg-red-700' : ''}>
             {saving ? 'Saving…' : 'Confirm'}
           </Button>
         </DialogFooter>

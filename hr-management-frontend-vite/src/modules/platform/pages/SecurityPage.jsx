@@ -42,7 +42,7 @@ const BackupCodesDialog = ({ codes, onClose }) => (
         <Button variant="outline" className="gap-1.5" onClick={() => downloadCodes(codes)}>
           <Download className="w-4 h-4" /> Download
         </Button>
-        <Button className="bg-slate-800 hover:bg-slate-900" onClick={onClose}>I've saved them</Button>
+        <Button onClick={onClose}>I've saved them</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -182,7 +182,7 @@ const TwoFactorCard = () => {
                 <Input id="totp-code" value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456" className="mt-1 w-40 tracking-[0.3em]" />
               </div>
               <div className="flex gap-2">
-                <Button type="submit" disabled={busy || code.length !== 6} className="bg-slate-800 hover:bg-slate-900">{busy ? 'Checking…' : 'Turn on'}</Button>
+                <Button type="submit" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Turn on'}</Button>
                 <Button type="button" variant="ghost" onClick={() => setEnrolment(null)}>Cancel</Button>
               </div>
             </div>
@@ -192,7 +192,7 @@ const TwoFactorCard = () => {
             <p className="text-sm text-slate-700">
               Add a second step to sign-in: after your password, enter a code from an authenticator app on your phone.
             </p>
-            <Button onClick={startSetup} disabled={busy} className="bg-slate-800 hover:bg-slate-900 gap-1.5 shrink-0">
+            <Button onClick={startSetup} disabled={busy} className="gap-1.5 shrink-0">
               <ShieldCheck className="w-4 h-4" /> Set up
             </Button>
           </div>
@@ -226,7 +226,7 @@ const TwoFactorCard = () => {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-              <Button type="submit" disabled={busy || !form.code || (dialog === 'disable' && !form.password)} className={dialog === 'disable' ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-800 hover:bg-slate-900'}>
+              <Button type="submit" disabled={busy || !form.code || (dialog === 'disable' && !form.password)} className={dialog === 'disable' ? 'bg-red-600 hover:bg-red-700' : ''}>
                 {busy ? 'Working…' : dialog === 'disable' ? 'Turn off' : 'Generate'}
               </Button>
             </DialogFooter>

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Bot, Send, Trash2, User, Sparkles, PlugZap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -109,9 +110,20 @@ const AssistantChat = ({ compact = false, isAdmin = false }) => {
           <PlugZap className="w-6 h-6 text-slate-500" />
         </div>
         <p className="font-semibold text-slate-900">AI assistant is not configured</p>
-        <p className="text-sm text-slate-500 mt-1 max-w-sm">
-          Your administrator hasn't connected an AI provider yet. In the meantime you can find your leave, attendance and payslips from the menu.
-        </p>
+        {isAdmin ? (
+          <>
+            <p className="text-sm text-slate-500 mt-1 max-w-sm">
+              Add an Anthropic API key to turn the assistant on for everyone.
+            </p>
+            <Button asChild size="sm" className="mt-3">
+              <Link to="/ai-settings">Set up AI assistant</Link>
+            </Button>
+          </>
+        ) : (
+          <p className="text-sm text-slate-500 mt-1 max-w-sm">
+            Your administrator hasn't connected an AI provider yet. In the meantime you can find your leave, attendance and payslips from the menu.
+          </p>
+        )}
       </div>
     );
   }
@@ -170,7 +182,7 @@ const AssistantChat = ({ compact = false, isAdmin = false }) => {
           className="min-h-[40px] max-h-32 resize-none text-sm"
           aria-label="Message"
         />
-        <Button type="submit" size="icon" disabled={sending || !input.trim()} className="bg-slate-800 hover:bg-slate-900 shrink-0" aria-label="Send">
+        <Button type="submit" size="icon" disabled={sending || !input.trim()} className="shrink-0" aria-label="Send">
           <Send className="w-4 h-4" />
         </Button>
         {messages.length > 0 && (

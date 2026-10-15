@@ -64,11 +64,11 @@ export default function TravelRequestsPage() {
   ]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <PageHeader icon={Plane} title="Travel" subtitle="Travel requests, approvals, advances and trip expenses">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={doExport} disabled={!shown.length}><Download className="w-4 h-4" /> Export CSV</Button>
-          <Button size="sm" className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setNewOpen(true)}><Plus className="w-4 h-4" /> New travel request</Button>
+          <Button size="sm" className="gap-1.5" onClick={() => setNewOpen(true)}><Plus className="w-4 h-4" /> New travel request</Button>
         </PageHeader>
 
         <Card className="border-0 shadow-md">
@@ -217,7 +217,7 @@ function NewTripDialog({ onClose, onCreated }) {
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Submitting…' : 'Submit'}</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Submitting…' : 'Submit'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -347,7 +347,7 @@ function TripDialog({ id, user, onClose, onChanged }) {
               {trip.can_act && (
                 <>
                   <Button variant="outline" className="gap-1 text-red-600" disabled={busy} onClick={() => (comments.trim().length < 3 ? toast.error('Add a reason for rejecting') : act('reject', { comments: comments.trim() }, 'Travel request rejected'))}><XCircle className="w-4 h-4" /> Reject</Button>
-                  <Button className="gap-1 bg-slate-800 hover:bg-slate-900" disabled={busy} onClick={() => act('approve', { comments: comments.trim() }, trip.status === 'pending_manager' ? 'Approved — sent to admin' : 'Travel approved')}><CheckCircle className="w-4 h-4" /> Approve</Button>
+                  <Button className="gap-1" disabled={busy} onClick={() => act('approve', { comments: comments.trim() }, trip.status === 'pending_manager' ? 'Approved — sent to admin' : 'Travel approved')}><CheckCircle className="w-4 h-4" /> Approve</Button>
                 </>
               )}
               {isAdmin && !trip.can_act && trip.status === 'pending_manager' && (

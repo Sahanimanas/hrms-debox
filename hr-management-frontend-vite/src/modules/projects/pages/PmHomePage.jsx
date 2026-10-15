@@ -37,7 +37,7 @@ export default function PmHomePage() {
     <div className="p-3 sm:p-4 md:p-8 max-w-7xl mx-auto space-y-6">
       <PageHeader icon={LayoutDashboard} title={`${greeting()}, ${(user?.full_name || '').split(' ')[0] || 'there'}`} subtitle="Here's what's on your plate across all projects">
         {projects.length > 0 && <Button variant="outline" className="gap-1.5 bg-white" onClick={() => setNewTask(true)}><Plus className="w-4 h-4" /> New task</Button>}
-        {meta?.can_create_projects && <Button className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setNewProject(true)} data-testid="home-new-project"><FolderKanban className="w-4 h-4" /> New project</Button>}
+        {meta?.can_create_projects && <Button className="gap-1.5" onClick={() => setNewProject(true)} data-testid="home-new-project"><FolderKanban className="w-4 h-4" /> New project</Button>}
       </PageHeader>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -100,7 +100,7 @@ export default function PmHomePage() {
         </div>
         {active.length === 0 ? (
           <Card className="border-dashed"><Empty icon={FolderKanban} title="No projects yet">
-            {meta?.can_create_projects ? <Button size="sm" className="mt-2 bg-slate-800 hover:bg-slate-900" onClick={() => setNewProject(true)}>Create your first project</Button> : 'Ask your manager to add you to a project.'}
+            {meta?.can_create_projects ? <Button size="sm" className="mt-2" onClick={() => setNewProject(true)}>Create your first project</Button> : 'Ask your manager to add you to a project.'}
           </Empty></Card>
         ) : (
           <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">

@@ -700,7 +700,7 @@ const SalaryStructurePage = () => {
     : leaveSummary.applications.slice(0, 3);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -1174,7 +1174,7 @@ const SalaryStructurePage = () => {
                   <Button
                     onClick={handleSave}
                     disabled={saving || earningsMismatch}
-                    className={`w-full h-12 text-lg font-semibold rounded-xl shadow-lg transition-all duration-200 hover:shadow-xl ${earningsMismatch ? 'bg-red-300 hover:bg-red-300 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-900'}`}
+                    className={`w-full h-12 text-lg font-semibold rounded-xl shadow-lg transition-all duration-200 hover:shadow-xl ${earningsMismatch ? 'bg-red-300 hover:bg-red-300 cursor-not-allowed' : ''}`}
                   >
                     <Save className="w-5 h-5 mr-2" />
                     {saving ? 'Saving...' : earningsMismatch ? 'Fix Components to Save' : 'Save Salary Structure'}

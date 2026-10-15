@@ -166,7 +166,7 @@ const MyReimbursementsPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-5 sm:mb-8">
@@ -193,7 +193,7 @@ const MyReimbursementsPage = () => {
             </Button>
             <Button
               onClick={openApply}
-              className="bg-slate-800 hover:bg-slate-900 rounded-lg sm:rounded-xl shadow-md gap-1.5 sm:gap-2 text-xs sm:text-sm h-9 sm:h-10 flex-1 sm:flex-none"
+              className="rounded-lg sm:rounded-xl shadow-md gap-1.5 sm:gap-2 text-xs sm:text-sm h-9 sm:h-10 flex-1 sm:flex-none"
             >
               <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               Apply Reimbursement
@@ -263,7 +263,7 @@ const MyReimbursementsPage = () => {
                 <p className="text-xs sm:text-sm text-slate-500 mb-4 sm:mb-6">You haven't submitted any reimbursement requests</p>
                 <Button
                   onClick={openApply}
-                  className="bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-9 sm:h-10"
+                  className="text-xs sm:text-sm h-9 sm:h-10"
                 >
                   <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
                   Apply for Reimbursement

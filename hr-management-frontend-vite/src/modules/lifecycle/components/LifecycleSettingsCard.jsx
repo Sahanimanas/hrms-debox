@@ -86,7 +86,7 @@ const LifecycleSettingsCard = () => {
             </div>
           </div>
           <div className="flex justify-end">
-            <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900 w-full sm:w-auto">
+            <Button onClick={save} disabled={saving} className="w-full sm:w-auto">
               {saving ? 'Saving…' : 'Save settings'}
             </Button>
           </div>

@@ -75,7 +75,7 @@ function SubmitForm({ onSubmitted }) {
             <Switch checked={form.anonymous} onCheckedChange={v => set('anonymous', v)} className="mt-0.5" />
             <span>Submit anonymously<span className="block text-xs text-slate-500">Your name isn't stored — you won't be able to track it.</span></span>
           </label>
-          <Button className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto" onClick={submit} disabled={saving}><Send className="w-4 h-4" />{saving ? 'Submitting…' : 'Submit'}</Button>
+          <Button className="gap-2 w-full sm:w-auto" onClick={submit} disabled={saving}><Send className="w-4 h-4" />{saving ? 'Submitting…' : 'Submit'}</Button>
         </div>
       </CardContent>
     </Card>
@@ -161,7 +161,7 @@ function ReviewDialog({ suggestion, onClose, onSaved }) {
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button className="bg-slate-800 hover:bg-slate-900" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -211,7 +211,7 @@ export default function LoansAdminPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAction(null)}>Cancel</Button>
-            <Button onClick={submit} disabled={saving} className={t === 'reject' ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-800 hover:bg-slate-900'}>{saving ? 'Saving…' : 'Confirm'}</Button>
+            <Button onClick={submit} disabled={saving} className={t === 'reject' ? 'bg-red-600 hover:bg-red-700' : ''}>{saving ? 'Saving…' : 'Confirm'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

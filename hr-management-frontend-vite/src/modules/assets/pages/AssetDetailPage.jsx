@@ -121,7 +121,7 @@ export default function AssetDetailPage() {
   if (loading && !asset) return <div className="p-8"><Loading label="Loading asset…" /></div>;
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+      <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
         <div className="max-w-6xl mx-auto">
           <Link to={backHref} className="text-sm text-slate-600 inline-flex items-center gap-1 mb-4"><ArrowLeft className="w-4 h-4" /> Back</Link>
           <Card className="border-0 shadow-md"><ErrorState message={error} onRetry={load} /></Card>
@@ -135,14 +135,14 @@ export default function AssetDetailPage() {
   const openIssues = (asset.issues || []).filter(i => ['open', 'in_repair'].includes(i.status));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <Link to={backHref} className="text-sm text-slate-600 hover:text-slate-900 inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> {isAdmin ? 'Asset register' : 'My assets'}</Link>
         <PageHeader icon={Package} title={`${asset.asset_tag} · ${asset.name}`} subtitle={`${categoryLabel(categories, asset.category)}${asset.brand ? ` · ${asset.brand}` : ''}${asset.model ? ` ${asset.model}` : ''}`}>
           {isAdmin && (
             <>
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setDialog('edit')}><Pencil className="w-4 h-4" /> Edit</Button>
-              {asset.status === 'available' && <Button size="sm" className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setDialog('assign')}><UserPlus className="w-4 h-4" /> Assign</Button>}
+              {asset.status === 'available' && <Button size="sm" className="gap-1.5" onClick={() => setDialog('assign')}><UserPlus className="w-4 h-4" /> Assign</Button>}
               {asset.assigned_to_email && <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setDialog('return')}><Undo2 className="w-4 h-4" /> Record return</Button>}
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setDialog('status')}><Wrench className="w-4 h-4" /> Status</Button>
             </>
@@ -375,7 +375,7 @@ export function AssignDialog({ asset, onClose, onDone, requestId, defaultEmploye
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Assigning…' : 'Assign'}</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Assigning…' : 'Assign'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -417,7 +417,7 @@ function ReturnDialog({ asset, onClose, onDone }) {
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Record return'}</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Record return'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -463,7 +463,7 @@ function StatusDialog({ asset, onClose, onDone }) {
         )}
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving || !status} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Update'}</Button>
+          <Button onClick={submit} disabled={saving || !status}>{saving ? 'Saving…' : 'Update'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -510,7 +510,7 @@ export function IssueDialog({ asset, onClose, onDone }) {
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Sending…' : 'Report issue'}</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Sending…' : 'Report issue'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,4 +1,16 @@
 const Joi = require('joi');
+const { passwordField } = require('../utils/passwordPolicy');
+
+// Phone: optional country code plus digits (spaces, dashes and brackets allowed),
+// 7–15 digits in total (E.164 maximum). The UI sends "+91 9876543210".
+const phoneField = Joi.string().trim().max(20)
+  .pattern(/^\+?[0-9][0-9\s()-]*$/)
+  .custom((value, helpers) => {
+    const digits = value.replace(/\D/g, '').length;
+    return digits >= 7 && digits <= 15 ? value : helpers.error('string.pattern.base');
+  })
+  .messages({ 'string.pattern.base': 'Enter a valid phone number with country code', 'string.max': 'Phone number is too long' })
+  .allow(null, '');
 
 // Enums
 const UserRole = {
@@ -98,14 +110,14 @@ const schemas = {
   // Auth
   userRegister: Joi.object({
     email: Joi.string().email().required(),
-    password: Joi.string().min(6).required(),
+    password: passwordField().required(),
     full_name: Joi.string().required(),
     // Public self-registration may only create employees or managers.
     // Admin accounts are created by an existing admin or the backend seed script.
     role: Joi.string().valid(UserRole.EMPLOYEE, UserRole.MANAGER).required(),
     department: Joi.string().required(),
     designation: Joi.string().required(),
-    phone: Joi.string().allow(null, ''),
+    phone: phoneField,
     organization_id: Joi.string().allow(null, ''),
     manager_email: Joi.string().email().allow(null, '')
   }),
@@ -118,12 +130,12 @@ const schemas = {
   // Employee
   employeeCreate: Joi.object({
     email: Joi.string().email().required(),
-    password: Joi.string().min(6).required(),
+    password: passwordField().required(),
     full_name: Joi.string().required(),
     role: Joi.string().valid(...Object.values(UserRole)).required(),
     department: Joi.string().required(),
     designation: Joi.string().required(),
-    phone: Joi.string().allow(null, ''),
+    phone: phoneField,
     organization_id: Joi.string().allow(null, ''),
     joining_date: Joi.date().default(() => new Date()),
     manager_email: Joi.string().email().allow(null, ''),
@@ -140,7 +152,7 @@ const schemas = {
     full_name: Joi.string(),
     department: Joi.string(),
     designation: Joi.string(),
-    phone: Joi.string().allow(null, ''),
+    phone: phoneField,
     monthly_salary: Joi.number().allow(null, ''),
     organization_id: Joi.string().allow(null, ''),
     manager_email: Joi.string().email().allow(null, ''),
@@ -272,7 +284,7 @@ const schemas = {
   setupAdminConfig: Joi.object({
     name: Joi.string().required(),
     email: Joi.string().email().required(),
-    password: Joi.string().min(6).required()
+    password: passwordField().required()
   }),
 
   // Employee ID Settings

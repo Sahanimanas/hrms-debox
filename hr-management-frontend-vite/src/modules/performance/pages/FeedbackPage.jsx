@@ -64,7 +64,7 @@ function GiveForm({ people, preset, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900"><Send className="w-4 h-4 mr-1" /> Send</Button>
+        <Button onClick={save} disabled={saving}><Send className="w-4 h-4 mr-1" /> Send</Button>
       </DialogFooter>
     </>
   );
@@ -100,7 +100,7 @@ function RequestForm({ people, onClose, onSaved }) {
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">Send request</Button>
+        <Button onClick={save} disabled={saving}>Send request</Button>
       </DialogFooter>
     </>
   );
@@ -187,7 +187,7 @@ const FeedbackPage = () => {
       actions={(
         <>
           <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'request' })}><MessageCircleQuestion className="w-4 h-4 mr-1" /> Request</Button>
-          <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setDialog({ kind: 'give' })}><HandHeart className="w-4 h-4 mr-1" /> Give feedback</Button>
+          <Button size="sm" onClick={() => setDialog({ kind: 'give' })}><HandHeart className="w-4 h-4 mr-1" /> Give feedback</Button>
         </>
       )}
     >
@@ -226,7 +226,7 @@ const FeedbackPage = () => {
                       <Pill tone={REQ_TONE[r.status]}>{r.status}</Pill>
                       {r.status === 'pending' && (
                         <>
-                          <Button size="sm" className="bg-slate-800 hover:bg-slate-900" onClick={() => setDialog({ kind: 'give', preset: { to_email: r.requester_email, request_id: r.id, topic: r.topic } })}>Respond</Button>
+                          <Button size="sm" onClick={() => setDialog({ kind: 'give', preset: { to_email: r.requester_email, request_id: r.id, topic: r.topic } })}>Respond</Button>
                           <Button size="sm" variant="ghost" onClick={() => decline(r)}>Decline</Button>
                         </>
                       )}

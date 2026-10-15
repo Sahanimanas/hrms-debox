@@ -1,32 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { AlertCircle, Eye, EyeOff, ShieldCheck, ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Lock, Mail, ShieldCheck, User } from 'lucide-react';
 import api from '@/lib/api';
 import { setAuth, isAuthenticated } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
-import BrandLogo from '@/components/BrandLogo';
+import { AuthAlert, AuthField, AuthLayout, AuthTitle, PasswordToggle } from '@/components/AuthLayout';
 import SsoButtons from '@/modules/platform/components/SsoButtons';
 import LanguageSwitcher from '@/modules/platform/components/LanguageSwitcher';
 import WorkspaceChooser from '@/components/WorkspaceChooser';
 import { WORKSPACES, getWorkspace, setWorkspace, workspaceHome } from '@/lib/workspace';
-
-// Inline field error
-const ErrorMessage = ({ message }) => {
-  if (!message) return null;
-  return (
-    <div className="flex items-center gap-1.5 mt-1.5 text-red-600">
-      <AlertCircle className="w-4 h-4 flex-shrink-0" />
-      <span className="text-sm">{message}</span>
-    </div>
-  );
-};
+import PhoneInput from '@/components/PhoneInput';
+import { phoneError } from '@/lib/phone';
+import PasswordRules from '@/components/PasswordRules';
+import { passwordPolicyMessage } from '@/lib/password';
+import { apiFieldErrors } from '@/lib/apiError';
 
 // Message left by the API client when a session ended (e.g. account deactivated)
 const readNotice = () => {
@@ -65,6 +57,8 @@ const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showRegPassword, setShowRegPassword] = useState(false);
   const [notice] = useState(readNotice);
+  // Login / Register tab (/login?tab=register opens the register form)
+  const [tab, setTab] = useState(() => (new URLSearchParams(window.location.search).get('tab') === 'register' ? 'register' : 'login'));
 
   // Two-factor step (PL-3): { challenge_token } after a password or SSO sign-in
   const [twoFactor, setTwoFactor] = useState(() => location.state?.twoFactor || null);
@@ -209,6 +203,12 @@ const LoginPage = () => {
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    const phoneProblem = phoneError(registerForm.phone);
+    const passwordProblem = passwordPolicyMessage(registerForm.password);
+    if (phoneProblem || passwordProblem) {
+      setRegisterErrors({ email: '', password: passwordProblem ? 'Choose a password that meets every rule below' : '', general: '', phone: phoneProblem || '' });
+      return;
+    }
     setLoading(true);
     setRegisterErrors({ email: '', password: '', general: '' });
 
@@ -232,6 +232,14 @@ const LoginPage = () => {
             password: '',
             general: '',
           });
+          return;
+        }
+
+        // Per-field validation errors from the API (422)
+        const fieldErrors = apiFieldErrors(error);
+        if (Object.keys(fieldErrors).length) {
+          const { email = '', password = '', phone = '', ...rest } = fieldErrors;
+          setRegisterErrors({ email, password, phone, general: Object.values(rest).join(' · ') });
           return;
         }
 
@@ -263,321 +271,280 @@ const LoginPage = () => {
     }
   };
 
-  return (
-    <div className="min-h-screen flex">
-      {/* Left Side - Form */}
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 bg-white">
-        <div className="w-full max-w-md">
-          <div className="mb-8 flex items-start justify-between gap-4">
-            <div>
-              <BrandLogo size="lg" tone="dark" product={workspace || 'hr'} className="mb-4" />
-              <p className="text-base sm:text-lg text-slate-600">{t(workspace ? WORKSPACES[workspace].tagline : 'HR & Project Management Suite')}</p>
-            </div>
-            <LanguageSwitcher tone="light" className="w-28 shrink-0 mt-2" />
-          </div>
+  const workspaceInfo = workspace ? WORKSPACES[workspace] : null;
+  const productName = workspaceInfo ? `Xeno-${workspaceInfo.suffix}` : 'Xeno';
 
-          {notice && !twoFactor && (
-            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-sm">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              {notice}
-            </div>
-          )}
-
-          {twoFactor ? (
-            <Card>
-              <CardContent className="pt-6">
-                <form onSubmit={handleVerify} className="space-y-4" data-testid="two-factor-form">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center shrink-0">
-                      <ShieldCheck className="w-5 h-5 text-yellow-400" />
-                    </div>
-                    <div>
-                      <h2 className="font-semibold text-slate-900">{t('Two-factor verification')}</h2>
-                      <p className="text-xs text-slate-500">{t('Enter the 6-digit code from your authenticator app, or one of your backup codes.')}</p>
-                    </div>
-                  </div>
-                  <div>
-                    <Label htmlFor="two-factor-code">{t('Verification code')}</Label>
-                    <Input
-                      id="two-factor-code"
-                      data-testid="two-factor-code-input"
-                      value={code}
-                      onChange={(e) => { setCode(e.target.value); setCodeError(''); }}
-                      autoComplete="one-time-code"
-                      inputMode="text"
-                      autoFocus
-                      maxLength={32}
-                      placeholder="123456"
-                      className={`mt-1 text-center tracking-[0.3em] text-lg ${codeError ? 'border-red-500' : ''}`}
-                    />
-                    <ErrorMessage message={codeError} />
-                  </div>
-                  <Button type="submit" data-testid="two-factor-submit-btn" className="w-full bg-slate-800 hover:bg-slate-900 rounded-full" disabled={loading}>
-                    {loading ? t('Verifying...') : t('Verify')}
-                  </Button>
-                  <button type="button" onClick={() => setTwoFactor(null)} className="w-full flex items-center justify-center gap-1 text-sm text-slate-500 hover:text-slate-800">
-                    <ArrowLeft className="w-4 h-4" /> {t('Back to sign in')}
-                  </button>
-                </form>
-              </CardContent>
-            </Card>
-          ) : !workspace ? (
-            <WorkspaceChooser onChoose={chooseWorkspace} lastUsed={lastUsed} />
-          ) : (
-          <>
-          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
-            <p className="text-sm text-slate-600 min-w-0 truncate">
-              {t('Signing in to')} <span className="font-semibold text-slate-900">{WORKSPACES[workspace].name}</span>
-            </p>
-            <button type="button" data-testid="change-workspace-btn" onClick={() => setChosenWorkspace(null)} className="shrink-0 flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900">
-              <ArrowLeft className="w-3.5 h-3.5" /> {t('Change')}
-            </button>
-          </div>
-          <Tabs defaultValue={new URLSearchParams(window.location.search).get('tab') === 'register' ? 'register' : 'login'} className="w-full">
-            <TabsList className="grid w-full grid-cols-1 mb-6">
-              <TabsTrigger value="login" data-testid="login-tab">{t('Login')}</TabsTrigger>
-              <TabsTrigger value="register" data-testid="register-tab">{t('Register')}</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="login">
-              <Card>
-                <CardContent className="pt-6">
-                  <form onSubmit={handleLogin} className="space-y-4">
-                    {/* General error banner */}
-                    {loginErrors.general && (
-                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                        <div className="flex items-center gap-2 text-red-700">
-                          <AlertCircle className="w-5 h-5" />
-                          <span className="text-sm font-medium">{loginErrors.general}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <Label htmlFor="login-email">{t('Email')}</Label>
-                      <Input
-                        id="login-email"
-                        data-testid="login-email-input"
-                        type="email"
-                        placeholder="john@example.com"
-                        value={loginForm.email}
-                        onChange={(e) => handleLoginChange('email', e.target.value)}
-                        required
-                        className={`mt-1 ${loginErrors.email ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}`}
-                      />
-                      <ErrorMessage message={loginErrors.email} />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="login-password">{t('Password')}</Label>
-                      <div className="relative mt-1">
-                        <Input
-                          id="login-password"
-                          data-testid="login-password-input"
-                          type={showPassword ? 'text' : 'password'}
-                          placeholder="••••••••"
-                          value={loginForm.password}
-                          onChange={(e) => handleLoginChange('password', e.target.value)}
-                          required
-                          className={`pr-10 ${loginErrors.password ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                      <ErrorMessage message={loginErrors.password} />
-                    </div>
-
-                    <div className="flex justify-end -mt-2">
-                      <Link to="/forgot-password" className="text-xs text-slate-500 hover:text-slate-800">{t('Forgot password?')}</Link>
-                    </div>
-
-                    <Button
-                      type="submit"
-                      data-testid="login-submit-btn"
-                      className="w-full bg-slate-800 hover:bg-slate-900 rounded-full"
-                      disabled={loading}
-                    >
-                      {loading ? t('Logging in...') : t('Login')}
-                    </Button>
-                  </form>
-                  <div className="mt-4">
-                    <SsoButtons onResult={handleLoginResult} disabled={loading} />
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="register">
-              <Card>
-                <CardContent className="pt-6">
-                  <form onSubmit={handleRegister} className="space-y-4" noValidate>
-                    {/* General error banner */}
-                    {registerErrors.general && (
-                      <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
-                        <div className="flex items-center gap-2 text-red-700">
-                          <AlertCircle className="w-5 h-5" />
-                          <span className="text-sm font-medium">{registerErrors.general}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div>
-                      <Label htmlFor="reg-name">{t('Full Name')}</Label>
-                      <Input
-                        id="reg-name"
-                        data-testid="register-name-input"
-                        type="text"
-                        placeholder="John Doe"
-                        value={registerForm.full_name}
-                        onChange={(e) => handleRegisterChange('full_name', e.target.value)}
-                        required
-                        className="mt-1"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="reg-email">{t('Email')}</Label>
-                      <Input
-                        id="reg-email"
-                        data-testid="register-email-input"
-                        type="email"
-                        placeholder="john@example.com"
-                        value={registerForm.email}
-                        onChange={(e) => handleRegisterChange('email', e.target.value)}
-                        required
-                        className={`mt-1 ${registerErrors.email ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}`}
-                      />
-                      <ErrorMessage message={registerErrors.email} />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="reg-password">{t('Password')}</Label>
-                      <div className="relative mt-1">
-                        <Input
-                          id="reg-password"
-                          data-testid="register-password-input"
-                          type={showRegPassword ? 'text' : 'password'}
-                          placeholder="••••••••"
-                          value={registerForm.password}
-                          onChange={(e) => handleRegisterChange('password', e.target.value)}
-                          required
-                          className={`pr-10 ${registerErrors.password ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''}`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowRegPassword(!showRegPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          {showRegPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                      <ErrorMessage message={registerErrors.password} />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label htmlFor="reg-department">{t('Department')}</Label>
-                        <Input
-                          id="reg-department"
-                          data-testid="register-department-input"
-                          type="text"
-                          placeholder="Engineering"
-                          value={registerForm.department}
-                          onChange={(e) => handleRegisterChange('department', e.target.value)}
-                          required
-                          className="mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="reg-designation">{t('Designation')}</Label>
-                        <Input
-                          id="reg-designation"
-                          data-testid="register-designation-input"
-                          type="text"
-                          placeholder="Developer"
-                          value={registerForm.designation}
-                          onChange={(e) => handleRegisterChange('designation', e.target.value)}
-                          required
-                          className="mt-1"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="reg-role">{t('Role')}</Label>
-                      <Select
-                        value={registerForm.role}
-                        onValueChange={(value) => handleRegisterChange('role', value)}
-                      >
-                        <SelectTrigger data-testid="register-role-select" className="mt-1">
-                          <SelectValue placeholder="Select role" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="employee">Employee</SelectItem>
-                          <SelectItem value="manager">Manager</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="reg-phone">Phone (Optional)</Label>
-                      <Input
-                        id="reg-phone"
-                        data-testid="register-phone-input"
-                        type="tel"
-                        placeholder="+1234567890"
-                        value={registerForm.phone}
-                        onChange={(e) => handleRegisterChange('phone', e.target.value)}
-                        className="mt-1"
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor="reg-manager">Manager Email (Optional)</Label>
-                      <Input
-                        id="reg-manager"
-                        data-testid="register-manager-input"
-                        type="email"
-                        placeholder="manager@example.com"
-                        value={registerForm.manager_email}
-                        onChange={(e) => handleRegisterChange('manager_email', e.target.value)}
-                        className="mt-1"
-                      />
-                    </div>
-
-                    <Button
-                      type="submit"
-                      data-testid="register-submit-btn"
-                      className="w-full bg-slate-800 hover:bg-slate-900 rounded-full"
-                      disabled={loading}
-                    >
-                      {loading ? 'Registering...' : 'Register'}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-          </>
-          )}
-        </div>
-      </div>
-
-      {/* Right Side - Image */}
-      <div className="hidden lg:block lg:flex-1 relative">
-        <img
-          src="https://images.unsplash.com/photo-1733471754436-a7b293256c43?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBvZmZpY2UlMjBhcmNoaXRlY3R1cmUlMjBicmlnaHR8ZW58MHx8fHwxNzY1NjU3NjY2fDA&ixlib=rb-4.1.0&q=85"
-          alt="Office"
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-slate-900/20" />
-      </div>
+  // Back link (password step only) + language picker, above the form
+  const topBar = (
+    <div className="flex items-center justify-between gap-3">
+      {workspace && !twoFactor ? (
+        <button
+          type="button"
+          data-testid="change-workspace-btn"
+          onClick={() => setChosenWorkspace(null)}
+          className="flex min-w-0 items-center gap-1 rounded-sm text-[13px] font-medium leading-[18px] text-ink-secondary transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        >
+          <ArrowLeft className="h-4 w-4 shrink-0" />
+          <span className="truncate">{t('All workspaces')}</span>
+        </button>
+      ) : <span />}
+      <LanguageSwitcher tone="light" className="w-28 shrink-0" />
     </div>
+  );
+
+  return (
+    <AuthLayout product={workspace || 'hr'} topBar={topBar}>
+      {notice && !twoFactor && <AuthAlert tone="warning">{notice}</AuthAlert>}
+
+      {twoFactor ? (
+        <form onSubmit={handleVerify} className="flex flex-col gap-5" data-testid="two-factor-form">
+          <span className="flex h-11 w-11 items-center justify-center rounded-md bg-navy text-brand">
+            <ShieldCheck className="h-5 w-5" />
+          </span>
+          <AuthTitle
+            title={t('Two-factor verification')}
+            subtitle={t('Enter the 6-digit code from your authenticator app, or one of your backup codes.')}
+          />
+          <AuthField
+            id="two-factor-code"
+            data-testid="two-factor-code-input"
+            label={t('Verification code')}
+            value={code}
+            onChange={(e) => { setCode(e.target.value); setCodeError(''); }}
+            autoComplete="one-time-code"
+            inputMode="text"
+            autoFocus
+            maxLength={32}
+            placeholder="123456"
+            error={codeError}
+            className="h-12 text-center text-lg tracking-[0.3em] md:text-lg"
+          />
+          <Button type="submit" variant="dark" data-testid="two-factor-submit-btn" className="w-full" disabled={loading}>
+            {loading ? t('Verifying...') : <>{t('Verify')} <ArrowRight /></>}
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setTwoFactor(null)} className="w-full font-medium">
+            <ArrowLeft /> {t('Back to sign in')}
+          </Button>
+        </form>
+      ) : !workspace ? (
+        <WorkspaceChooser onChoose={chooseWorkspace} lastUsed={lastUsed} />
+      ) : (
+        <Tabs value={tab} onValueChange={setTab} className="flex w-full flex-col gap-5">
+          {tab === 'register' ? (
+            <AuthTitle
+              title={t('Create your account')}
+              subtitle={t('Join your team on {name}.', { name: workspaceInfo.name })}
+            />
+          ) : (
+            <AuthTitle
+              title={t('Welcome back')}
+              subtitle={t('Sign in to your {name} workspace to continue.', { name: workspaceInfo.name })}
+            />
+          )}
+
+          <WorkspaceChooser compact value={workspace} onChoose={chooseWorkspace} />
+
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="login" data-testid="login-tab">{t('Login')}</TabsTrigger>
+            <TabsTrigger value="register" data-testid="register-tab">{t('Register')}</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="login" className="mt-0">
+            <div className="flex flex-col gap-5">
+              <form onSubmit={handleLogin} className="flex flex-col gap-5">
+                {loginErrors.general && <AuthAlert>{loginErrors.general}</AuthAlert>}
+
+                <AuthField
+                  id="login-email"
+                  data-testid="login-email-input"
+                  label={t('Work email')}
+                  icon={Mail}
+                  type="email"
+                  autoComplete="email"
+                  placeholder="john@example.com"
+                  value={loginForm.email}
+                  onChange={(e) => handleLoginChange('email', e.target.value)}
+                  required
+                  error={loginErrors.email}
+                />
+
+                <AuthField
+                  id="login-password"
+                  data-testid="login-password-input"
+                  label={t('Password')}
+                  icon={Lock}
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={loginForm.password}
+                  onChange={(e) => handleLoginChange('password', e.target.value)}
+                  required
+                  error={loginErrors.password}
+                  trailing={<PasswordToggle shown={showPassword} onToggle={() => setShowPassword(!showPassword)} />}
+                />
+
+                <div className="-mt-1 flex justify-end">
+                  <Link
+                    to="/forgot-password"
+                    className="rounded-sm text-[13px] font-medium leading-[18px] text-brand-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  >
+                    {t('Forgot password?')}
+                  </Link>
+                </div>
+
+                <Button
+                  type="submit"
+                  variant="dark"
+                  data-testid="login-submit-btn"
+                  className="w-full"
+                  disabled={loading}
+                >
+                  {loading ? t('Logging in...') : <><ArrowRight /> {t('Sign in')}</>}
+                </Button>
+              </form>
+
+              <SsoButtons onResult={handleLoginResult} disabled={loading} />
+
+              <p className="flex flex-wrap justify-center gap-1 text-[13px] leading-[18px]">
+                <span className="text-ink-secondary">{t('New to {name}?', { name: productName })}</span>
+                <button type="button" onClick={() => setTab('register')} className="font-medium text-ink hover:underline">
+                  {t('Create an account')}
+                </button>
+              </p>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="register" className="mt-0">
+            <form onSubmit={handleRegister} className="flex flex-col gap-4" noValidate>
+              {registerErrors.general && <AuthAlert>{registerErrors.general}</AuthAlert>}
+
+              <AuthField
+                id="reg-name"
+                data-testid="register-name-input"
+                label={t('Full Name')}
+                icon={User}
+                type="text"
+                autoComplete="name"
+                placeholder="John Doe"
+                value={registerForm.full_name}
+                onChange={(e) => handleRegisterChange('full_name', e.target.value)}
+                required
+              />
+
+              <AuthField
+                id="reg-email"
+                data-testid="register-email-input"
+                label={t('Email')}
+                icon={Mail}
+                type="email"
+                autoComplete="email"
+                placeholder="john@example.com"
+                value={registerForm.email}
+                onChange={(e) => handleRegisterChange('email', e.target.value)}
+                required
+                error={registerErrors.email}
+              />
+
+              <AuthField
+                id="reg-password"
+                data-testid="register-password-input"
+                label={t('Password')}
+                icon={Lock}
+                type={showRegPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                placeholder="••••••••"
+                value={registerForm.password}
+                onChange={(e) => handleRegisterChange('password', e.target.value)}
+                required
+                error={registerErrors.password}
+                aria-describedby="reg-password-rules"
+                trailing={<PasswordToggle shown={showRegPassword} onToggle={() => setShowRegPassword(!showRegPassword)} />}
+              />
+              <PasswordRules id="reg-password-rules" password={registerForm.password} showErrors={!!registerErrors.password} className="-mt-2" />
+
+              <div className="grid grid-cols-2 gap-3">
+                <AuthField
+                  id="reg-department"
+                  data-testid="register-department-input"
+                  label={t('Department')}
+                  type="text"
+                  placeholder="Engineering"
+                  value={registerForm.department}
+                  onChange={(e) => handleRegisterChange('department', e.target.value)}
+                  required
+                />
+                <AuthField
+                  id="reg-designation"
+                  data-testid="register-designation-input"
+                  label={t('Designation')}
+                  type="text"
+                  placeholder="Developer"
+                  value={registerForm.designation}
+                  onChange={(e) => handleRegisterChange('designation', e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="reg-role" className="text-[13px] leading-[18px] text-ink-secondary">{t('Role')}</Label>
+                <Select
+                  value={registerForm.role}
+                  onValueChange={(value) => handleRegisterChange('role', value)}
+                >
+                  <SelectTrigger id="reg-role" data-testid="register-role-select" className="h-11 px-3.5">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="employee">Employee</SelectItem>
+                    <SelectItem value="manager">Manager</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="reg-phone" className="text-[13px] leading-[18px] text-ink-secondary">Phone (Optional)</Label>
+                <PhoneInput
+                  id="reg-phone"
+                  data-testid="register-phone-input"
+                  value={registerForm.phone}
+                  onChange={(phone) => handleRegisterChange('phone', phone)}
+                  showError={!!registerErrors.phone}
+                  boxClassName="h-11"
+                />
+              </div>
+
+              <AuthField
+                id="reg-manager"
+                data-testid="register-manager-input"
+                label="Manager Email (Optional)"
+                icon={Mail}
+                type="email"
+                placeholder="manager@example.com"
+                value={registerForm.manager_email}
+                onChange={(e) => handleRegisterChange('manager_email', e.target.value)}
+              />
+
+              <Button
+                type="submit"
+                variant="dark"
+                data-testid="register-submit-btn"
+                className="mt-1 w-full"
+                disabled={loading}
+              >
+                {loading ? 'Registering...' : 'Register'}
+              </Button>
+
+              <p className="flex flex-wrap justify-center gap-1 text-[13px] leading-[18px]">
+                <span className="text-ink-secondary">{t('Already have an account?')}</span>
+                <button type="button" onClick={() => setTab('login')} className="font-medium text-ink hover:underline">
+                  {t('Sign in')}
+                </button>
+              </p>
+            </form>
+          </TabsContent>
+        </Tabs>
+      )}
+    </AuthLayout>
   );
 };
 

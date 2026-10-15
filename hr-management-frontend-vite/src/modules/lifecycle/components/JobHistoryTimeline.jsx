@@ -82,7 +82,7 @@ const JobHistoryTimeline = ({ uid = null, canAdd = false, compact = false }) => 
         <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2"><History className="w-4 h-4" />Job history</h3>
         <div className="flex gap-2">
           {entries?.length > 0 && <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={doExport}><Download className="w-3.5 h-3.5" />CSV</Button>}
-          {canAdd && uid && <Button size="sm" className="h-8 gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setForm({ type: 'promotion', title: '', effective_date: todayYmd(), notes: '', label: '', from: '', to: '' })}><Plus className="w-3.5 h-3.5" />Add entry</Button>}
+          {canAdd && uid && <Button size="sm" className="h-8 gap-1.5" onClick={() => setForm({ type: 'promotion', title: '', effective_date: todayYmd(), notes: '', label: '', from: '', to: '' })}><Plus className="w-3.5 h-3.5" />Add entry</Button>}
         </div>
       </div>
       {error ? <p className="text-sm text-red-600">{error}</p> : !entries ? <Loading /> : entries.length === 0 ? (
@@ -149,7 +149,7 @@ const JobHistoryTimeline = ({ uid = null, canAdd = false, compact = false }) => 
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setForm(null)}>Cancel</Button>
-                <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Add entry'}</Button>
+                <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Add entry'}</Button>
               </DialogFooter>
             </>
           )}

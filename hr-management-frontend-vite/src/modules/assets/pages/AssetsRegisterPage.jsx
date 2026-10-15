@@ -107,13 +107,13 @@ export default function AssetsRegisterPage() {
   const statusTones = { available: 'emerald', assigned: 'sky', in_repair: 'amber', retired: 'slate', lost: 'rose' };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <PageHeader icon={Package} title="Asset Register" subtitle="Company assets, who has them and their condition">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setCatsOpen(true)}><Tags className="w-4 h-4" /> Categories</Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setImportOpen(true)}><Upload className="w-4 h-4" /> Import CSV</Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={doExport} disabled={!filtered.length}><Download className="w-4 h-4" /> Export CSV</Button>
-          <Button size="sm" className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setFormOpen(true)}><Plus className="w-4 h-4" /> Add asset</Button>
+          <Button size="sm" className="gap-1.5" onClick={() => setFormOpen(true)}><Plus className="w-4 h-4" /> Add asset</Button>
         </PageHeader>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
@@ -319,7 +319,7 @@ function ImportDialog({ open, onOpenChange, onImported }) {
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-          <Button onClick={submit} disabled={busy || !file} className="bg-slate-800 hover:bg-slate-900">
+          <Button onClick={submit} disabled={busy || !file}>
             {busy ? 'Working…' : dryRun ? 'Validate' : 'Import valid rows'}
           </Button>
         </DialogFooter>
@@ -367,7 +367,7 @@ function CategoriesDialog({ open, onOpenChange, categories, onChanged }) {
               <Label htmlFor="cat-new" className="sr-only">New category</Label>
               <Input id="cat-new" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Headset" onKeyDown={(e) => e.key === 'Enter' && add()} />
             </div>
-            <Button onClick={add} disabled={busy || !label.trim()} className="bg-slate-800 hover:bg-slate-900"><Plus className="w-4 h-4" /></Button>
+            <Button onClick={add} disabled={busy || !label.trim()}><Plus className="w-4 h-4" /></Button>
           </div>
           <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-100 rounded-lg">
             {categories.map(c => (

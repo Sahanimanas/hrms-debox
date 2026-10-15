@@ -171,7 +171,7 @@ function ProjectView({ id }) {
             {members.slice(0, 6).map(m => <Avatar key={m.email} name={m.name} picture={m.picture} size="md" className="ring-2 ring-slate-50" />)}
             {members.length > 6 && <span className="w-8 h-8 rounded-full bg-slate-200 ring-2 ring-slate-50 text-xs flex items-center justify-center">+{members.length - 6}</span>}
           </button>
-          {editable && <Button className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setCreating({})} data-testid="new-task-btn"><Plus className="w-4 h-4" /> New task</Button>}
+          {editable && <Button className="gap-1.5" onClick={() => setCreating({})} data-testid="new-task-btn"><Plus className="w-4 h-4" /> New task</Button>}
         </div>
       </div>
 

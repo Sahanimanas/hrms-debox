@@ -92,7 +92,7 @@ const DocumentsAdminPage = () => {
   return (
     <PageShell>
       <PageHeader icon={FolderLock} title="Document Vault" subtitle="Every employee's documents, verification and expiry">
-        <Button onClick={() => setUploadOpen(true)} className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto"><Upload className="w-4 h-4" />Upload for employee</Button>
+        <Button onClick={() => setUploadOpen(true)} className="gap-2 w-full sm:w-auto"><Upload className="w-4 h-4" />Upload for employee</Button>
       </PageHeader>
 
       <div className="grid grid-cols-3 gap-2 sm:gap-4">

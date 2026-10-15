@@ -194,7 +194,7 @@ const ShiftsPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2 sm:gap-3">
@@ -208,7 +208,7 @@ const ShiftsPage = () => {
               <p className="text-xs sm:text-sm text-slate-600">Working hours, grace periods and weekly offs used for clock-in</p>
             </div>
           </div>
-          <Button onClick={openCreate} className="bg-slate-800 hover:bg-slate-900 rounded-lg sm:rounded-xl shadow-md gap-2 text-xs sm:text-sm h-9 sm:h-10 w-full sm:w-auto">
+          <Button onClick={openCreate} className="rounded-lg sm:rounded-xl shadow-md gap-2 text-xs sm:text-sm h-9 sm:h-10 w-full sm:w-auto">
             <Plus className="w-4 h-4" /> New Shift
           </Button>
         </div>
@@ -306,7 +306,7 @@ const ShiftsPage = () => {
               >
                 <Download className="w-4 h-4" /> Export
               </Button>
-              <Button onClick={assign} disabled={!assignTo || selected.size === 0} className="bg-slate-800 hover:bg-slate-900">
+              <Button onClick={assign} disabled={!assignTo || selected.size === 0}>
                 Assign{selected.size ? ` to ${selected.size}` : ''}
               </Button>
             </div>
@@ -419,7 +419,7 @@ const ShiftsPage = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">
+            <Button onClick={save} disabled={saving}>
               {saving ? 'Saving…' : editing ? 'Save changes' : 'Create shift'}
             </Button>
           </DialogFooter>

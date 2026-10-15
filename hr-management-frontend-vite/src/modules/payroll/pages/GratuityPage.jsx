@@ -78,7 +78,7 @@ export default function GratuityPage() {
             <div className="space-y-1"><Label className="text-xs">Joining date</Label><Input type="date" value={form.joining_date} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} /></div>
             <div className="space-y-1"><Label className="text-xs">Exit / as-on date</Label><Input type="date" value={form.exit_date} onChange={(e) => setForm({ ...form, exit_date: e.target.value })} /></div>
           </div>
-          <Button onClick={calculate} disabled={busy} className="w-full bg-slate-800 hover:bg-slate-900">{busy ? 'Calculating…' : 'Calculate'}</Button>
+          <Button onClick={calculate} disabled={busy} className="w-full">{busy ? 'Calculating…' : 'Calculate'}</Button>
         </SectionCard>
 
         <SectionCard icon={result?.eligible ? CheckCircle2 : XCircle} title="Result" bodyClassName="p-4 sm:p-5">

@@ -113,7 +113,7 @@ export default function JobsPage() {
           <a href="/careers" target="_blank" rel="noreferrer"><ExternalLink className="w-4 h-4" /> Careers page</a>
         </Button>
         {isAdmin && (
-          <Button onClick={() => setDialog({ open: true, job: null })} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9 sm:h-10 flex-1 sm:flex-none">
+          <Button onClick={() => setDialog({ open: true, job: null })} className="gap-2 h-9 sm:h-10 flex-1 sm:flex-none">
             <Plus className="w-4 h-4" /> New job
           </Button>
         )}

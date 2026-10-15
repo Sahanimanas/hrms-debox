@@ -134,7 +134,7 @@ const SettlementPanel = ({ sep, onChange }) => {
       )}
       {editable && (
         <div className="flex justify-end">
-          <Button disabled={busy} onClick={finalize} className="bg-slate-800 hover:bg-slate-900 gap-2"><Lock className="w-4 h-4" />Finalize &amp; exit employee</Button>
+          <Button disabled={busy} onClick={finalize} className="gap-2"><Lock className="w-4 h-4" />Finalize &amp; exit employee</Button>
         </div>
       )}
     </div>
@@ -377,7 +377,7 @@ const OffboardingPage = () => {
   );
 
   const templateTab = (
-    <SectionCard icon={ListChecks} title="Exit checklist template" actions={template && <Button size="sm" className="h-8 bg-slate-800 hover:bg-slate-900" onClick={saveTemplate}>Save</Button>}>
+    <SectionCard icon={ListChecks} title="Exit checklist template" actions={template && <Button size="sm" className="h-8" onClick={saveTemplate}>Save</Button>}>
       {!template ? <Loading /> : (
         <div className="p-3 sm:p-5 space-y-2">
           <p className="text-xs text-slate-500">Copied to every approved separation. Assigned assets are added automatically as “Return asset” items.</p>
@@ -503,7 +503,7 @@ const OffboardingPage = () => {
                           {OWNERS.map(o => <option key={o} value={o}>{OWNER_LABELS[o]}</option>)}
                         </NativeSelect>
                         <div className="flex gap-1">
-                          <Button size="sm" className="h-9 flex-1 bg-slate-800 hover:bg-slate-900" onClick={addItem}>Add</Button>
+                          <Button size="sm" className="h-9 flex-1" onClick={addItem}>Add</Button>
                           <Button size="sm" variant="outline" className="h-9" onClick={() => setNewItem(null)}>×</Button>
                         </div>
                       </div>

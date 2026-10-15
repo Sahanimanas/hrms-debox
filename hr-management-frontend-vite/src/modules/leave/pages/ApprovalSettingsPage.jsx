@@ -150,7 +150,7 @@ const ApprovalSettingsPage = () => {
   }));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="p-2 sm:p-3 bg-slate-800 rounded-lg sm:rounded-xl shadow-lg">
@@ -224,7 +224,7 @@ const ApprovalSettingsPage = () => {
                 <p className="text-xs text-slate-500">
                   During these dates the delegate sees your pending leave approvals and can approve or reject them; each action records that it was done on your behalf. You can still act yourself.
                 </p>
-                <Button onClick={createDelegation} disabled={saving} className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto">
+                <Button onClick={createDelegation} disabled={saving} className="gap-2 w-full sm:w-auto">
                   <Plus className="w-4 h-4" /> {saving ? 'Saving…' : 'Delegate approvals'}
                 </Button>
               </CardContent>
@@ -368,7 +368,7 @@ const ApprovalSettingsPage = () => {
                       <Switch checked={!!settings.admin_override} onCheckedChange={(v) => setSettings({ ...settings, admin_override: v })} />
                     </div>
 
-                    <Button onClick={saveChain} disabled={savingChain} className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto">
+                    <Button onClick={saveChain} disabled={savingChain} className="gap-2 w-full sm:w-auto">
                       <Save className="w-4 h-4" /> {savingChain ? 'Saving…' : 'Save approval chain'}
                     </Button>
                   </CardContent>

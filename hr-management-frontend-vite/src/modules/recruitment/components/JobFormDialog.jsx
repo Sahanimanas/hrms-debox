@@ -141,7 +141,7 @@ export default function JobFormDialog({ open, job, onClose, onSaved }) {
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : job ? 'Save changes' : 'Create draft'}</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : job ? 'Save changes' : 'Create draft'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

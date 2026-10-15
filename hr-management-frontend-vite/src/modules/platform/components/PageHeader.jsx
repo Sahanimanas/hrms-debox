@@ -1,29 +1,24 @@
 import React from 'react';
 
-/** Page header in the style of MyAttendancePage: dark icon tile + title + subtitle + actions. */
-const PageHeader = ({ icon, title, subtitle, children }) => {
-  const Icon = icon;
-  return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        <div className="p-2 sm:p-3 bg-slate-800 rounded-lg sm:rounded-xl shadow-lg shrink-0">
-          <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-        </div>
-        <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 truncate" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            {title}
-          </h1>
-          {subtitle && <p className="text-xs sm:text-sm text-slate-600">{subtitle}</p>}
-        </div>
-      </div>
-      {children && <div className="flex flex-wrap gap-2">{children}</div>}
+/**
+ * Page header (Figma "Page header"): 28px title, 15px subtitle, actions on the right.
+ * `icon` is still accepted from older callers; the redesign no longer shows an icon tile.
+ */
+const PageHeader = ({ title, subtitle, children }) => (
+  <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+    <div className="min-w-0 space-y-1">
+      <h1 className="font-display text-2xl sm:text-[28px] sm:leading-9 font-bold tracking-[-0.02em] text-ink truncate">
+        {title}
+      </h1>
+      {subtitle && <p className="text-sm sm:text-[15px] sm:leading-6 text-ink-secondary">{subtitle}</p>}
     </div>
-  );
-};
+    {children && <div className="flex flex-wrap gap-3">{children}</div>}
+  </div>
+);
 
 export const PageShell = ({ children }) => (
-  <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
-    <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">{children}</div>
+  <div className="min-h-full bg-canvas p-4 sm:p-6 lg:p-8">
+    <div className="max-w-[1376px] mx-auto space-y-6">{children}</div>
   </div>
 );
 

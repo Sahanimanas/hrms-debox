@@ -1,16 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Lock, CheckCircle, XCircle, AlertTriangle, Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { Lock, CheckCircle, XCircle, AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
+import PasswordRules from '@/components/PasswordRules';
+import { passwordPolicyMessage } from '@/lib/password';
+import { apiErrorMessage } from '@/lib/apiError';
+import { Avatar } from '@/components/ds';
+import { AuthField, AuthLayout, AuthStatus, AuthTitle, PasswordToggle } from '@/components/AuthLayout';
+
+const BackToLogin = () => (
+  <Link
+    to="/login"
+    className="flex w-fit items-center gap-1 rounded-sm text-[13px] font-medium leading-[18px] text-ink-secondary transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+  >
+    <ArrowLeft className="h-4 w-4" /> Back to Login
+  </Link>
+);
 
 const ResetPasswordPage = () => {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const token = searchParams.get('token');
 
   const [status, setStatus] = useState('loading'); // loading, valid, invalid, expired, success
@@ -18,6 +28,7 @@ const ResetPasswordPage = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -30,6 +41,7 @@ const ResetPasswordPage = () => {
     }
 
     validateToken();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const validateToken = async () => {
@@ -54,8 +66,10 @@ const ResetPasswordPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (password.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    const passwordProblem = passwordPolicyMessage(password);
+    if (passwordProblem) {
+      setSubmitAttempted(true);
+      toast.error(passwordProblem);
       return;
     }
 
@@ -76,7 +90,7 @@ const ResetPasswordPage = () => {
       toast.success('Password reset successfully!');
     } catch (error) {
       const code = error.response?.data?.code;
-      const message = error.response?.data?.detail || 'Failed to reset password';
+      const message = apiErrorMessage(error, 'Failed to reset password');
 
       if (code === 'TOKEN_EXPIRED') {
         setStatus('expired');
@@ -95,208 +109,138 @@ const ResetPasswordPage = () => {
   // Loading state
   if (status === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-600">Validating reset link...</p>
+      <AuthLayout>
+        <div className="flex items-center gap-3 text-[15px] leading-6 text-ink-secondary" role="status">
+          <Loader2 className="h-5 w-5 animate-spin text-ink-muted" />
+          Validating reset link...
         </div>
-      </div>
+      </AuthLayout>
     );
   }
 
   // Invalid token state
   if (status === 'invalid') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-8 pb-8 text-center">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <XCircle className="w-8 h-8 text-red-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">Invalid Reset Link</h1>
-            <p className="text-slate-600 mb-6">{errorMessage}</p>
-            <div className="space-y-3">
-              <Link to="/login">
-                <Button className="w-full bg-slate-800 hover:bg-slate-900">
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back to Login
-                </Button>
-              </Link>
-              <Link to="/forgot-password">
-                <Button variant="outline" className="w-full">
-                  Request New Reset Link
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthLayout topBar={<BackToLogin />}>
+        <AuthStatus icon={XCircle} tone="danger" title="Invalid Reset Link">{errorMessage}</AuthStatus>
+        <div className="flex flex-col gap-3">
+          <Button asChild variant="dark" className="w-full">
+            <Link to="/login"><ArrowLeft /> Back to Login</Link>
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link to="/forgot-password">Request New Reset Link</Link>
+          </Button>
+        </div>
+      </AuthLayout>
     );
   }
 
   // Expired token state
   if (status === 'expired') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-8 pb-8 text-center">
-            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle className="w-8 h-8 text-amber-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">Link Expired</h1>
-            <p className="text-slate-600 mb-6">{errorMessage}</p>
-            <div className="space-y-3">
-              <Link to="/forgot-password">
-                <Button className="w-full bg-slate-800 hover:bg-slate-900">
-                  Request New Reset Link
-                </Button>
-              </Link>
-              <Link to="/login">
-                <Button variant="outline" className="w-full">
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back to Login
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthLayout topBar={<BackToLogin />}>
+        <AuthStatus icon={AlertTriangle} tone="warning" title="Link Expired">{errorMessage}</AuthStatus>
+        <div className="flex flex-col gap-3">
+          <Button asChild variant="dark" className="w-full">
+            <Link to="/forgot-password">Request New Reset Link</Link>
+          </Button>
+          <Button asChild variant="outline" className="w-full">
+            <Link to="/login"><ArrowLeft /> Back to Login</Link>
+          </Button>
+        </div>
+      </AuthLayout>
     );
   }
 
   // Success state
   if (status === 'success') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-8 pb-8 text-center">
-            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-emerald-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">Password Reset Successful!</h1>
-            <p className="text-slate-600 mb-6">
-              Your password has been changed successfully. You can now log in with your new password.
-            </p>
-            <Link to="/login">
-              <Button className="w-full bg-slate-800 hover:bg-slate-900">
-                Go to Login
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthLayout>
+        <AuthStatus icon={CheckCircle} tone="success" title="Password Reset Successful!">
+          Your password has been changed successfully. You can now log in with your new password.
+        </AuthStatus>
+        <Button asChild variant="dark" className="w-full">
+          <Link to="/login">Go to Login</Link>
+        </Button>
+      </AuthLayout>
     );
   }
 
+  const mismatch = confirmPassword && password !== confirmPassword;
+
   // Valid token - show reset form
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-md">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
-            Reset Your Password
-          </h1>
-          <p className="text-slate-600">Create a new password for your account</p>
+    <AuthLayout topBar={<BackToLogin />}>
+      <AuthTitle title="Reset Your Password" subtitle="Create a new password for your account" />
+
+      {/* User Info */}
+      <div className="flex items-center gap-3 rounded-lg border border-line bg-canvas p-4">
+        <Avatar name={userInfo?.full_name} size="lg" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium leading-4 text-ink-muted">Resetting password for</p>
+          <p className="truncate text-sm font-semibold leading-5 text-ink">{userInfo?.full_name}</p>
+          <p className="truncate text-[13px] leading-[18px] text-ink-secondary">{userInfo?.email}</p>
+        </div>
+      </div>
+
+      {/* Warning */}
+      <div className="flex items-start gap-3 rounded-md border border-warning-solid/30 bg-warning-bg p-3.5">
+        <AlertTriangle className="mt-px h-4 w-4 shrink-0 text-warning-fg" />
+        <div className="text-[13px] leading-[18px] text-warning-fg">
+          <p className="font-semibold">One-time use link</p>
+          <p className="mt-0.5">This link can only be used once. After resetting your password, it will no longer work.</p>
+        </div>
+      </div>
+
+      {/* Form */}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+        <AuthField
+          id="password"
+          label="New Password"
+          icon={Lock}
+          type={showPassword ? 'text' : 'password'}
+          autoComplete="new-password"
+          placeholder="Enter new password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          aria-describedby="password-rules"
+          error={submitAttempted && passwordPolicyMessage(password) ? 'Choose a password that meets every rule below' : ''}
+          trailing={<PasswordToggle shown={showPassword} onToggle={() => setShowPassword(!showPassword)} />}
+        />
+        <PasswordRules id="password-rules" password={password} showErrors={submitAttempted} className="-mt-3" />
+
+        <div className="flex flex-col gap-1.5">
+          <AuthField
+            id="confirm-password"
+            label="Confirm Password"
+            icon={Lock}
+            type={showConfirmPassword ? 'text' : 'password'}
+            autoComplete="new-password"
+            placeholder="Confirm new password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            error={mismatch ? 'Passwords do not match' : ''}
+            trailing={<PasswordToggle shown={showConfirmPassword} onToggle={() => setShowConfirmPassword(!showConfirmPassword)} />}
+          />
+          {confirmPassword && password === confirmPassword && (
+            <p className="flex items-center gap-1.5 text-[13px] leading-[18px] text-success-fg">
+              <CheckCircle className="h-4 w-4" /> Passwords match
+            </p>
+          )}
         </div>
 
-        <Card>
-          <CardContent className="pt-6">
-            {/* User Info */}
-            <div className="bg-slate-50 rounded-lg p-4 mb-6 border border-slate-200">
-              <p className="text-sm text-slate-500 mb-1">Resetting password for</p>
-              <p className="font-semibold text-slate-900 text-lg">{userInfo?.full_name}</p>
-              <p className="text-sm text-slate-600">{userInfo?.email}</p>
-            </div>
-
-            {/* Warning */}
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-amber-800">One-time use link</p>
-                  <p className="text-sm text-amber-700 mt-1">
-                    This link can only be used once. After resetting your password, it will no longer work.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="password">New Password</Label>
-                <div className="relative mt-1">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Enter new password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                    className="pl-10 pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Must be at least 6 characters</p>
-              </div>
-
-              <div>
-                <Label htmlFor="confirm-password">Confirm Password</Label>
-                <div className="relative mt-1">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    id="confirm-password"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    placeholder="Confirm new password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                    className="pl-10 pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {confirmPassword && password !== confirmPassword && (
-                  <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
-                )}
-                {confirmPassword && password === confirmPassword && (
-                  <p className="text-xs text-emerald-500 mt-1">Passwords match ✓</p>
-                )}
-              </div>
-
-              <Button
-                type="submit"
-                className="w-full bg-slate-800 hover:bg-slate-900 rounded-full mt-6"
-                disabled={submitting || password !== confirmPassword || password.length < 6}
-              >
-                {submitting ? 'Resetting Password...' : 'Reset Password'}
-              </Button>
-            </form>
-
-            <div className="mt-6 text-center">
-              <Link to="/login" className="text-sm text-slate-600 hover:text-slate-900">
-                <ArrowLeft className="w-4 h-4 inline mr-1" />
-                Back to Login
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+        <Button
+          type="submit"
+          variant="dark"
+          className="w-full"
+          disabled={submitting || password !== confirmPassword || !password}
+        >
+          {submitting ? 'Resetting Password...' : 'Reset Password'}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 };
 

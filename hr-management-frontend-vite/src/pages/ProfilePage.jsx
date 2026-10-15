@@ -12,11 +12,14 @@ import api from '@/lib/api';
 import { format, parseISO, differenceInDays } from 'date-fns';
 import PersonalDetailsCard from '@/modules/lifecycle/components/PersonalDetailsCard';
 import JobHistoryTimeline from '@/modules/lifecycle/components/JobHistoryTimeline';
+import PhoneInput from '@/components/PhoneInput';
+import { phoneError } from '@/lib/phone';
 
 const ProfilePage = () => {
   const [employee, setEmployee] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [phoneSubmitted, setPhoneSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [uploadingPfp, setUploadingPfp] = useState(false);
   const [uploadingGovId, setUploadingGovId] = useState(false);
@@ -79,6 +82,12 @@ const ProfilePage = () => {
 
   const handleUpdate = async (e) => {
     e.preventDefault();
+    const phoneProblem = phoneError(editForm.phone);
+    if (phoneProblem) {
+      setPhoneSubmitted(true);
+      toast.error(phoneProblem);
+      return;
+    }
     setSubmitting(true);
 
     try {
@@ -322,13 +331,13 @@ const ProfilePage = () => {
                 </div>
                 <div>
                   <Label htmlFor="edit-phone" className="text-xs sm:text-sm">Phone</Label>
-                  <Input
+                  <PhoneInput
                     id="edit-phone"
                     data-testid="edit-phone-input"
-                    type="tel"
                     value={editForm.phone}
-                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                    className="mt-1 text-sm h-9 sm:h-10"
+                    onChange={(phone) => setEditForm({ ...editForm, phone })}
+                    showError={phoneSubmitted}
+                    className="mt-1"
                   />
                 </div>
                 <div className="flex gap-2 sm:gap-3 pt-3 sm:pt-4">
@@ -345,7 +354,7 @@ const ProfilePage = () => {
                   <Button
                     type="submit"
                     data-testid="save-profile-btn"
-                    className="flex-1 bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-9 sm:h-10"
+                    className="flex-1 text-xs sm:text-sm h-9 sm:h-10"
                     disabled={submitting}
                   >
                     <Save className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
@@ -635,7 +644,7 @@ const ProfilePage = () => {
 
                   <Dialog open={govIdDialogOpen} onOpenChange={setGovIdDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button className="bg-slate-800 hover:bg-slate-900 text-xs sm:text-sm h-8 sm:h-10">
+                      <Button className="text-xs sm:text-sm h-8 sm:h-10">
                         <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-1.5 sm:mr-2" />
                         Upload ID
                       </Button>

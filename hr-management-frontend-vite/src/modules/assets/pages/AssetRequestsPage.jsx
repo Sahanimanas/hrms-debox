@@ -87,7 +87,7 @@ export default function AssetRequestsPage() {
   const activeIssues = issues.filter(i => ['open', 'in_repair'].includes(i.status)).length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <PageHeader icon={ClipboardList} title="Asset Requests" subtitle="Approve and fulfil requests, and handle reported issues">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={doExport}><Download className="w-4 h-4" /> Export CSV</Button>
@@ -134,7 +134,7 @@ export default function AssetRequestsPage() {
                       {['pending', 'approved'].includes(r.status) && (
                         <div className="flex flex-wrap gap-2 shrink-0">
                           {r.status === 'pending' && <Button size="sm" variant="outline" className="gap-1" onClick={() => setAction({ type: 'approve', request: r })}><CheckCircle className="w-3.5 h-3.5" /> Approve</Button>}
-                          <Button size="sm" className="gap-1 bg-slate-800 hover:bg-slate-900" onClick={() => setAction({ type: 'fulfil', request: r })}><PackageCheck className="w-3.5 h-3.5" /> Fulfil</Button>
+                          <Button size="sm" className="gap-1" onClick={() => setAction({ type: 'fulfil', request: r })}><PackageCheck className="w-3.5 h-3.5" /> Fulfil</Button>
                           <Button size="sm" variant="ghost" className="gap-1 text-red-600 hover:bg-red-50" onClick={() => setAction({ type: 'reject', request: r })}><XCircle className="w-3.5 h-3.5" /> Reject</Button>
                         </div>
                       )}
@@ -207,7 +207,7 @@ function DecisionDialog({ action, categories, onClose, onDone }) {
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving} className={type === 'reject' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-slate-800 hover:bg-slate-900'}>
+          <Button onClick={submit} disabled={saving} className={type === 'reject' ? 'bg-red-600 hover:bg-red-700 text-white' : ''}>
             {saving ? 'Saving…' : type === 'approve' ? 'Approve' : 'Reject'}
           </Button>
         </DialogFooter>
@@ -283,7 +283,7 @@ function FulfilDialog({ request, categories, onClose, onDone }) {
         )}
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving || !form.asset_id} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Assigning…' : 'Assign & fulfil'}</Button>
+          <Button onClick={submit} disabled={saving || !form.asset_id}>{saving ? 'Assigning…' : 'Assign & fulfil'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

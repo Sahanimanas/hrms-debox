@@ -116,7 +116,7 @@ const MyExitPage = () => {
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <Button onClick={submit} disabled={submitting} className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto">
+                  <Button onClick={submit} disabled={submitting} className="gap-2 w-full sm:w-auto">
                     <Send className="w-4 h-4" />{submitting ? 'Submitting…' : 'Submit resignation'}
                   </Button>
                 </div>

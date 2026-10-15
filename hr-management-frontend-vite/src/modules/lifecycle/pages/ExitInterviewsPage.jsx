@@ -165,7 +165,7 @@ const ExitInterviewsPage = () => {
           </TabsContent>
 
           <TabsContent value="questions">
-            <SectionCard icon={MessageSquareText} title="Questionnaire" actions={<Button size="sm" className="h-8 bg-slate-800 hover:bg-slate-900" onClick={saveQuestions}>Save</Button>}>
+            <SectionCard icon={MessageSquareText} title="Questionnaire" actions={<Button size="sm" className="h-8" onClick={saveQuestions}>Save</Button>}>
               {!questions ? <Loading /> : (
                 <div className="p-3 sm:p-5 space-y-3">
                   <p className="text-xs text-slate-500">Changes apply to future responses. Mark one choice question as the “reason for leaving” to drive the breakdown chart.</p>

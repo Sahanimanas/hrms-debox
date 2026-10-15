@@ -73,7 +73,7 @@ export function OfferDialog({ open, candidate, job, offer, onClose, onSaved }) {
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : offer ? 'Save' : 'Create draft'}</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : offer ? 'Save' : 'Create draft'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -115,7 +115,7 @@ export function RespondDialog({ offer, onClose, onSaved }) {
         <Field id="rs-note" label="Note"><Textarea id="rs-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} placeholder={response === 'declined' ? 'e.g. accepted a counter offer' : ''} /></Field>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save'}</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -177,7 +177,7 @@ export function ConvertDialog({ offer, candidateEmail, onClose, onDone }) {
               <Button size="sm" variant="outline" onClick={copy} className="gap-1 h-8"><Copy className="w-3.5 h-3.5" /> Copy credentials</Button>
             </div>
             {result.job_closed && <p className="text-xs text-slate-600">Headcount filled — the job posting was closed automatically.</p>}
-            <DialogFooter><Button onClick={onClose} className="bg-slate-800 hover:bg-slate-900">Done</Button></DialogFooter>
+            <DialogFooter><Button onClick={onClose}>Done</Button></DialogFooter>
           </>
         ) : (
           <>

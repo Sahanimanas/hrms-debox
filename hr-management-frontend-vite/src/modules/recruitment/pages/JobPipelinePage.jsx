@@ -106,7 +106,7 @@ export default function JobPipelinePage() {
           ? <Button variant="outline" onClick={() => setJobStatus('closed')} className="gap-1 h-9"><Lock className="w-4 h-4" /> Close</Button>
           : <Button onClick={() => setJobStatus('open')} className="gap-1 h-9 bg-emerald-600 hover:bg-emerald-700"><Globe className="w-4 h-4" /> Publish</Button>}
         {job.status !== 'closed' && (
-          <Button onClick={() => setAddOpen(true)} className="gap-1 h-9 bg-slate-800 hover:bg-slate-900"><UserPlus className="w-4 h-4" /> Add candidate</Button>
+          <Button onClick={() => setAddOpen(true)} className="gap-1 h-9"><UserPlus className="w-4 h-4" /> Add candidate</Button>
         )}
       </PageHeader>
 

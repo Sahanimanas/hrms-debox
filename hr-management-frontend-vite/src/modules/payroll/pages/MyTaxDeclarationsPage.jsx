@@ -187,7 +187,7 @@ export default function MyTaxDeclarationsPage() {
             <SelectContent>{fys.map(f => <SelectItem key={f} value={f}>FY {f}</SelectItem>)}</SelectContent>
           </Select>
           <Button variant="outline" onClick={exportRows} disabled={!items.length} className="gap-2 h-9 sm:h-10">Export CSV</Button>
-          <Button onClick={save} disabled={saving || locked} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9 sm:h-10"><Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save'}</Button>
+          <Button onClick={save} disabled={saving || locked} className="gap-2 h-9 sm:h-10"><Save className="w-4 h-4" /> {saving ? 'Saving…' : 'Save'}</Button>
         </>
       )}
     >

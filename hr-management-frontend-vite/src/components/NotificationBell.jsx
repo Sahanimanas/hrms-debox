@@ -140,15 +140,14 @@ const NotificationBell = () => {
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant="ghost"
+          variant="outline"
           size="icon"
-          className="relative text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+          aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
+          className="relative shrink-0 shadow-none text-ink-secondary hover:text-ink"
         >
-          <Bell className="h-5 w-5" />
+          <Bell className="!h-[18px] !w-[18px]" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center rounded-full bg-red-500 text-white text-xs font-medium">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
+            <span className="absolute top-2 right-2.5 h-2 w-2 rounded-full bg-danger-solid ring-2 ring-surface" />
           )}
         </Button>
       </PopoverTrigger>

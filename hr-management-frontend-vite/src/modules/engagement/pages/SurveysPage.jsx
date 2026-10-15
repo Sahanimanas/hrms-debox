@@ -39,7 +39,7 @@ function OpenSurveys({ onAnswer, version }) {
               {s.responded ? (
                 <p className="flex items-center gap-1.5 text-sm text-emerald-700"><CheckCircle2 className="w-4 h-4" />Submitted — thank you!</p>
               ) : (
-                <Button className="bg-slate-800 hover:bg-slate-900 w-full sm:w-auto" onClick={() => onAnswer(s.id)}>Take survey</Button>
+                <Button className="w-full sm:w-auto" onClick={() => onAnswer(s.id)}>Take survey</Button>
               )}
             </CardContent>
           </Card>

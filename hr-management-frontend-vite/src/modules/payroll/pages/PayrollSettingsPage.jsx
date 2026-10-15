@@ -205,7 +205,7 @@ export default function PayrollSettingsPage() {
       icon={Settings2}
       title="Payroll Settings"
       subtitle="Statutory configuration, LOP rules, declarations and income-tax slabs"
-      actions={<Button onClick={save} disabled={saving} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9 sm:h-10"><Save className="w-4 h-4" /> Save settings</Button>}
+      actions={<Button onClick={save} disabled={saving} className="gap-2 h-9 sm:h-10"><Save className="w-4 h-4" /> Save settings</Button>}
     >
       <Tabs defaultValue="statutory">
         <TabsList className="flex-wrap h-auto">
@@ -310,7 +310,7 @@ export default function PayrollSettingsPage() {
               {years.length > 1 && settings.tax_slabs[fy] && (
                 <Button variant="ghost" onClick={deleteFy} className="text-red-600 hover:bg-red-50 gap-1.5"><Trash2 className="w-4 h-4" /> Remove FY {fy}</Button>
               )}
-              <Button onClick={saveSlabs} disabled={saving} className="bg-slate-800 hover:bg-slate-900 gap-2"><Save className="w-4 h-4" /> Save FY {fy} slabs</Button>
+              <Button onClick={saveSlabs} disabled={saving} className="gap-2"><Save className="w-4 h-4" /> Save FY {fy} slabs</Button>
             </div>
           </SectionCard>
         </TabsContent>

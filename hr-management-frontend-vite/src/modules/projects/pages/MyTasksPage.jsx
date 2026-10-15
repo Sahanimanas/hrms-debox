@@ -42,7 +42,7 @@ export default function MyTasksPage() {
   return (
     <div className="p-3 sm:p-4 md:p-8 max-w-6xl mx-auto space-y-5">
       <PageHeader icon={CheckSquare} title="My Tasks" subtitle="Your work across every project, by due date">
-        <Button className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setCreating(true)}><Plus className="w-4 h-4" /> New task</Button>
+        <Button className="gap-1.5" onClick={() => setCreating(true)}><Plus className="w-4 h-4" /> New task</Button>
       </PageHeader>
 
       <div className="flex flex-wrap items-center gap-4 justify-between">

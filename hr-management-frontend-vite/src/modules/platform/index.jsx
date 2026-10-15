@@ -4,7 +4,7 @@
 // Nav items may declare `permission` (PL-5): the Layout shows the item when the
 // user's role is in `roles` OR they hold that permission (admins hold all).
 import React from 'react';
-import { ScrollText, KeyRound, ShieldHalf, Plug, KeySquare, Coins, Bot } from 'lucide-react';
+import { ScrollText, KeyRound, ShieldHalf, Plug, KeySquare, Coins, Bot, Sparkles } from 'lucide-react';
 import AuditLogPage from './pages/AuditLogPage';
 import SecurityPage from './pages/SecurityPage';
 import RolesPage from './pages/RolesPage';
@@ -12,6 +12,7 @@ import IntegrationsPage from './pages/IntegrationsPage';
 import ApiWebhooksPage from './pages/ApiWebhooksPage';
 import OrgPreferencesPage from './pages/OrgPreferencesPage';
 import AssistantPage from './pages/AssistantPage';
+import AssistantSettingsPage from './pages/AssistantSettingsPage';
 import SsoCallbackPage from './pages/SsoCallbackPage';
 import SecurityWidget from './components/SecurityWidget';
 
@@ -26,12 +27,14 @@ const platformModule = {
     { path: 'api-webhooks', element: <ApiWebhooksPage /> },
     { path: 'org-preferences', element: <OrgPreferencesPage /> },
     { path: 'assistant', element: <AssistantPage /> },
+    { path: 'ai-settings', element: <AssistantSettingsPage /> },
   ],
   publicRoutes: [
     { path: '/sso/microsoft/callback', element: <SsoCallbackPage /> },
   ],
   nav: [
     { name: 'AI Assistant', href: '/assistant', icon: Bot, roles: ALL, section: 'Administration' },
+    { name: 'AI Assistant Settings', href: '/ai-settings', icon: Sparkles, roles: ['admin'], permission: 'settings.manage', section: 'Administration' },
     { name: 'Security', href: '/security', icon: KeyRound, roles: ALL, section: 'Administration' },
     { name: 'Integrations', href: '/integrations', icon: Plug, roles: ALL, section: 'Administration' },
     { name: 'Audit Log', href: '/audit-log', icon: ScrollText, roles: ['admin'], permission: 'audit.view', section: 'Administration' },

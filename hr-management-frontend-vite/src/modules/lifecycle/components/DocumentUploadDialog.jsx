@@ -108,7 +108,7 @@ const DocumentUploadDialog = ({ open, onOpenChange, onUploaded, employees = null
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Uploading…' : 'Upload'}</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Uploading…' : 'Upload'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,12 +1,56 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, LogIn, LogOut, MapPin, AlertTriangle, CalendarOff, ChevronRight } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { LogIn, LogOut, MapPin, AlertTriangle, CalendarOff, CalendarCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { fmtTime, fmtMinutes, fmtShiftTime, getPosition, DEFAULT_TIMEZONE } from '@/lib/time';
+import { fmtTime, fmtMinutes, getPosition, DEFAULT_TIMEZONE } from '@/lib/time';
+
+// Faint yellow streak on the left of the navy band (Figma "Clock hero" radial fill)
+const HERO_GLOW = {
+  backgroundImage: 'radial-gradient(1150px 50px at -115px 62%, rgba(250,204,20,0.22), rgba(250,204,20,0))',
+};
+
+const pad = (n) => String(n).padStart(2, '0');
+
+/** Seconds -> "HH:MM:SS". */
+const fmtElapsed = (seconds) => {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+};
+
+/** Wall-clock "HH:MM:SS" in the company timezone. */
+const fmtClock = (date, timeZone) =>
+  date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone });
+
+const toMinutes = (hhmm) => {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + (m || 0);
+};
+
+const fromMinutes = (mins) => {
+  const m = ((Math.round(mins) % 1440) + 1440) % 1440;
+  return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+};
+
+/** Four evenly spaced labels across the shift (handles shifts that cross midnight). */
+const shiftTimeline = (shift) => {
+  const start = toMinutes(shift?.start_time);
+  let end = toMinutes(shift?.end_time);
+  if (start == null || end == null) return [];
+  if (end <= start) end += 1440;
+  const span = end - start;
+  return [0, 1 / 3, 2 / 3, 1].map(f => fromMinutes(start + span * f));
+};
+
+const shiftLength = (shift) => {
+  const start = toMinutes(shift?.start_time);
+  let end = toMinutes(shift?.end_time);
+  if (start == null || end == null) return null;
+  if (end <= start) end += 1440;
+  return end - start;
+};
 
 const ClockWidget = ({ onPunch }) => {
   const [today, setToday] = useState(null);
@@ -27,7 +71,7 @@ const ClockWidget = ({ onPunch }) => {
 
   useEffect(() => {
     fetchToday();
-    const timer = setInterval(() => setNow(new Date()), 30000);
+    const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, [fetchToday]);
 
@@ -53,107 +97,123 @@ const ClockWidget = ({ onPunch }) => {
   const { log, shift, clocked_in: clockedIn } = today;
   const finishedToday = log?.clock_out && log.date === today.date;
   const liveWorked = clockedIn && log ? (now - new Date(log.clock_in)) / 60000 : log?.worked_minutes;
+  const target = shift?.full_day_minutes || shiftLength(shift) || 480;
+  const progress = Math.min(100, Math.max(0, ((liveWorked || 0) / target) * 100));
+  const timeline = shiftTimeline(shift);
+
+  const bigTime = clockedIn && log
+    ? fmtElapsed((now - new Date(log.clock_in)) / 1000)
+    : fmtClock(now, tz);
+
+  const meta = [];
+  if (clockedIn && log) {
+    meta.push(`Clocked in at ${fmtTime(log.clock_in, tz)}`);
+    meta.push(log.is_late ? `Late ${fmtMinutes(log.late_minutes)}` : 'On time');
+  } else if (finishedToday) {
+    meta.push(`Done for today · ${fmtTime(log.clock_in, tz)} – ${fmtTime(log.clock_out, tz)}`);
+    if (log.is_late) meta.push(`Late ${fmtMinutes(log.late_minutes)}`);
+  } else {
+    meta.push('Not clocked in yet');
+  }
+  if (log?.clock_in_location) meta.push('Location recorded');
 
   return (
-    <Card data-testid="clock-widget" className="border-slate-100 shadow-sm">
-      <CardContent className="p-4 sm:p-6">
-        <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
-          <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-            <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 ${clockedIn ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-              <Clock className={`w-5 h-5 sm:w-6 sm:h-6 ${clockedIn ? 'text-emerald-600' : 'text-amber-600'}`} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs sm:text-sm font-medium text-slate-500 uppercase tracking-wider">
-                {clockedIn ? 'You are clocked in' : finishedToday ? 'Done for today' : 'Not clocked in'}
-              </p>
-              <p className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums">
-                {fmtTime(now, tz)}
-              </p>
-              <p className="text-xs sm:text-sm text-slate-500 truncate">
-                {shift.name} shift · {fmtShiftTime(shift.start_time)} – {fmtShiftTime(shift.end_time)}
-              </p>
-            </div>
-          </div>
+    <section
+      data-testid="clock-widget"
+      className="relative overflow-hidden rounded-hero bg-navy px-5 py-6 sm:px-8 sm:py-7"
+    >
+      <span aria-hidden className="pointer-events-none absolute inset-0" style={HERO_GLOW} />
 
-          {log && (
-            <div className="grid grid-cols-3 gap-3 sm:gap-6 text-center md:text-left">
-              <div>
-                <p className="text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider">In</p>
-                <p className="text-sm sm:text-base font-semibold text-slate-900">{fmtTime(log.clock_in, tz)}</p>
-                {log.is_late && (
-                  <Badge className="mt-1 bg-amber-100 text-amber-700 hover:bg-amber-100 text-[10px] px-1.5 py-0">
-                    Late {fmtMinutes(log.late_minutes)}
-                  </Badge>
-                )}
-              </div>
-              <div>
-                <p className="text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider">Out</p>
-                <p className="text-sm sm:text-base font-semibold text-slate-900">{fmtTime(log.clock_out, tz)}</p>
-              </div>
-              <div>
-                <p className="text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider">Worked</p>
-                <p className="text-sm sm:text-base font-semibold text-slate-900">{fmtMinutes(liveWorked)}</p>
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2 md:w-44">
-            {clockedIn ? (
-              <Button
-                data-testid="clock-out-btn"
-                onClick={() => punch('clock-out')}
-                disabled={punching}
-                className="bg-slate-800 hover:bg-slate-900 h-11 gap-2"
-              >
-                <LogOut className="w-4 h-4" />
-                {punching ? 'Clocking out…' : 'Clock Out'}
-              </Button>
-            ) : (
-              <Button
-                data-testid="clock-in-btn"
-                onClick={() => punch('clock-in')}
-                disabled={punching || finishedToday}
-                className="bg-yellow-400 hover:bg-yellow-500 text-slate-900 h-11 gap-2"
-              >
-                <LogIn className="w-4 h-4" />
-                {punching ? 'Clocking in…' : 'Clock In'}
-              </Button>
-            )}
-            <Link
-              to="/my-attendance"
-              className="text-xs text-slate-500 hover:text-slate-900 inline-flex items-center justify-center gap-0.5"
-            >
-              My attendance <ChevronRight className="w-3 h-3" />
-            </Link>
-          </div>
-        </div>
-
-        {(today.holiday || today.is_weekly_off || log?.clock_in_location) && (
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500">
+      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-center lg:gap-8">
+        {/* Left: shift, live clock, meta */}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <p className="truncate text-[11px] font-semibold uppercase leading-[14px] tracking-[0.06em] text-brand">
+            Today&apos;s shift · {shift?.name} {shift?.start_time} – {shift?.end_time}
+          </p>
+          <p className="font-display text-[36px] font-bold leading-[44px] tracking-[-0.02em] text-white tabular-nums sm:text-[44px] sm:leading-[52px]">
+            {bigTime}
+          </p>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] leading-[18px] text-navy-text">
+            <MapPin className="h-3.5 w-3.5 shrink-0" />
+            <span className="min-w-0">{meta.join(' · ')}</span>
             {today.holiday && (
-              <span className="inline-flex items-center gap-1 text-purple-600">
-                <CalendarOff className="w-3.5 h-3.5" /> Holiday: {today.holiday.name}
+              <span className="inline-flex items-center gap-1 text-brand">
+                · <CalendarOff className="h-3.5 w-3.5" /> Holiday: {today.holiday.name}
               </span>
             )}
             {!today.holiday && today.is_weekly_off && (
-              <span className="inline-flex items-center gap-1 text-purple-600">
-                <CalendarOff className="w-3.5 h-3.5" /> Weekly off
-              </span>
-            )}
-            {log?.clock_in_location && (
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5" /> Location recorded
+              <span className="inline-flex items-center gap-1 text-brand">
+                · <CalendarOff className="h-3.5 w-3.5" /> Weekly off
               </span>
             )}
             {finishedToday && log.early_exit_minutes > 0 && (
-              <span className="inline-flex items-center gap-1 text-amber-600">
-                <AlertTriangle className="w-3.5 h-3.5" /> Left {fmtMinutes(log.early_exit_minutes)} early
+              <span className="inline-flex items-center gap-1 text-warning-solid">
+                · <AlertTriangle className="h-3.5 w-3.5" /> Left {fmtMinutes(log.early_exit_minutes)} early
               </span>
             )}
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+
+        {/* Middle: worked vs target */}
+        <div className="flex w-full flex-col gap-2.5 lg:w-[300px] xl:w-[360px] shrink-0">
+          <div className="flex items-start text-[13px] leading-[18px]">
+            <p className="flex-1 min-w-0 font-medium text-white">Worked {fmtMinutes(liveWorked || 0)}</p>
+            <p className="shrink-0 text-navy-text">Target {fmtMinutes(target)}</p>
+          </div>
+          <div
+            className="relative h-2 w-full overflow-hidden rounded-full bg-navy-hover"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress)}
+            aria-label="Worked time against shift target"
+          >
+            <div className="absolute inset-y-0 left-0 rounded-full bg-brand transition-[width] duration-500" style={{ width: `${progress}%` }} />
+          </div>
+          {timeline.length > 0 && (
+            <div className="flex items-start text-xs font-medium leading-4 text-navy-text">
+              {timeline.map((label, i) => (
+                <p key={i} className={`flex-1 min-w-0 ${i === 0 ? 'text-left' : i === timeline.length - 1 ? 'text-right' : 'text-center'}`}>
+                  {label}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right: actions */}
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          <Link
+            to="/my-attendance"
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-navy-border bg-navy-hover px-4 text-sm font-semibold text-white transition-colors hover:border-navy-text/40"
+          >
+            <CalendarCheck className="h-[18px] w-[18px]" />
+            My attendance
+          </Link>
+          {clockedIn ? (
+            <Button
+              data-testid="clock-out-btn"
+              onClick={() => punch('clock-out')}
+              disabled={punching}
+              className="[&_svg]:size-[18px]"
+            >
+              <LogOut />
+              {punching ? 'Clocking out…' : 'Clock out'}
+            </Button>
+          ) : (
+            <Button
+              data-testid="clock-in-btn"
+              onClick={() => punch('clock-in')}
+              disabled={punching || finishedToday}
+              className="[&_svg]:size-[18px]"
+            >
+              <LogIn />
+              {punching ? 'Clocking in…' : 'Clock in'}
+            </Button>
+          )}
+        </div>
+      </div>
+    </section>
   );
 };
 

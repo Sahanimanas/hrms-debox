@@ -39,7 +39,7 @@ const SecretDialog = ({ secret, title, note, onClose }) => (
         <Button size="icon" variant="ghost" aria-label="Copy" onClick={() => copyWithToast(secret)}><Copy className="w-4 h-4" /></Button>
       </div>
       <DialogFooter>
-        <Button className="bg-slate-800 hover:bg-slate-900" onClick={onClose}>Done</Button>
+        <Button onClick={onClose}>Done</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -116,7 +116,7 @@ const ApiKeysTab = () => {
                 { key: 'status', label: 'Status' }, { key: 'created_by', label: 'Created by' }, { key: 'created_at', label: 'Created' },
                 { key: 'last_used_at', label: 'Last used' }, { key: 'expires_at', label: 'Expires' },
               ])}><Download className="w-4 h-4" /> <span className="hidden sm:inline">Export CSV</span></Button>
-              <Button size="sm" onClick={() => setOpen(true)} className="bg-slate-800 hover:bg-slate-900 gap-1.5"><Plus className="w-4 h-4" /> New key</Button>
+              <Button size="sm" onClick={() => setOpen(true)} className="gap-1.5"><Plus className="w-4 h-4" /> New key</Button>
             </div>
           </div>
         </CardHeader>
@@ -205,7 +205,7 @@ const ApiKeysTab = () => {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving || form.name.trim().length < 2 || !form.scopes.length} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Creating…' : 'Create key'}</Button>
+              <Button type="submit" disabled={saving || form.name.trim().length < 2 || !form.scopes.length}>{saving ? 'Creating…' : 'Create key'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -353,7 +353,7 @@ const WebhooksTab = () => {
         <CardHeader className="border-b border-slate-100 p-3 sm:p-5">
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-base sm:text-lg flex items-center gap-2"><Webhook className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" /> Webhooks</CardTitle>
-            <Button size="sm" onClick={() => openDialog(null)} className="bg-slate-800 hover:bg-slate-900 gap-1.5"><Plus className="w-4 h-4" /> New webhook</Button>
+            <Button size="sm" onClick={() => openDialog(null)} className="gap-1.5"><Plus className="w-4 h-4" /> New webhook</Button>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -429,7 +429,7 @@ const WebhooksTab = () => {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-              <Button type="submit" disabled={saving || !form.url || !form.events.length} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Saving…' : 'Save'}</Button>
+              <Button type="submit" disabled={saving || !form.url || !form.events.length}>{saving ? 'Saving…' : 'Save'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

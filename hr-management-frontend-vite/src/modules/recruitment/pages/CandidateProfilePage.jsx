@@ -212,10 +212,10 @@ export default function CandidateProfilePage() {
                 <Button variant="outline" className="gap-1 h-9" onClick={() => setInterviewDialog({ open: true, interview: null })}><CalendarPlus className="w-4 h-4" /> Interview</Button>
               )}
               {full && isAdmin && !['hired', 'rejected', 'withdrawn'].includes(c.stage) && !(data.offers || []).some(o => ['draft', 'sent', 'accepted'].includes(o.status)) && (
-                <Button className="gap-1 h-9 bg-slate-800 hover:bg-slate-900" onClick={() => setOfferDialog({ open: true, offer: null })}><Handshake className="w-4 h-4" /> Make offer</Button>
+                <Button className="gap-1 h-9" onClick={() => setOfferDialog({ open: true, offer: null })}><Handshake className="w-4 h-4" /> Make offer</Button>
               )}
               {myOpenInterviews.map(iv => (
-                <Button key={iv.id} className="gap-1 h-9 bg-slate-800 hover:bg-slate-900" onClick={() => setScoreInterview(iv)}>
+                <Button key={iv.id} className="gap-1 h-9" onClick={() => setScoreInterview(iv)}>
                   <Pencil className="w-4 h-4" /> {iv.my_scorecard_submitted ? 'Edit' : 'Submit'} scorecard{myOpenInterviews.length > 1 ? ` (${iv.round_name})` : ''}
                 </Button>
               ))}
@@ -334,7 +334,7 @@ export default function CandidateProfilePage() {
                   <CardContent className="p-4 space-y-2">
                     <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} maxLength={3000} placeholder="Add a private note for the hiring team…" aria-label="New note" />
                     <div className="flex justify-end">
-                      <Button size="sm" onClick={addNote} disabled={!note.trim()} className="gap-1 bg-slate-800 hover:bg-slate-900"><MessageSquarePlus className="w-4 h-4" /> Add note</Button>
+                      <Button size="sm" onClick={addNote} disabled={!note.trim()} className="gap-1"><MessageSquarePlus className="w-4 h-4" /> Add note</Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -457,11 +457,11 @@ export default function CandidateProfilePage() {
                         {isAdmin && o.status === 'draft' && (
                           <>
                             <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => setOfferDialog({ open: true, offer: o })}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
-                            <Button size="sm" className="h-8 gap-1 bg-slate-800 hover:bg-slate-900" onClick={() => offerAction(o, 'send')}><Send className="w-3.5 h-3.5" /> Mark sent</Button>
+                            <Button size="sm" className="h-8 gap-1" onClick={() => offerAction(o, 'send')}><Send className="w-3.5 h-3.5" /> Mark sent</Button>
                             <Button size="sm" variant="ghost" className="h-8 text-red-600" onClick={() => offerAction(o, 'discard')} aria-label="Discard draft"><Trash2 className="w-3.5 h-3.5" /></Button>
                           </>
                         )}
-                        {isAdmin && o.status === 'sent' && <Button size="sm" className="h-8 bg-slate-800 hover:bg-slate-900" onClick={() => setRespondOffer(o)}>Record response</Button>}
+                        {isAdmin && o.status === 'sent' && <Button size="sm" className="h-8" onClick={() => setRespondOffer(o)}>Record response</Button>}
                         {isAdmin && o.status === 'accepted' && !o.employee_id && (
                           <Button size="sm" className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => setConvertOffer(o)}><UserCheck className="w-3.5 h-3.5" /> Convert to employee</Button>
                         )}

@@ -208,7 +208,7 @@ export default function NewTaskDialog({ open, onOpenChange, project, projects, d
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={saving || !form.title.trim() || !projectId} className="bg-slate-800 hover:bg-slate-900" data-testid="new-task-submit">
+            <Button type="submit" disabled={saving || !form.title.trim() || !projectId} data-testid="new-task-submit">
               {saving ? 'Creating…' : 'Create task'}
             </Button>
           </DialogFooter>

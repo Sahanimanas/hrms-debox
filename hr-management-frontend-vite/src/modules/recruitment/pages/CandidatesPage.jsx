@@ -90,7 +90,7 @@ export default function CandidatesPage() {
         <Button variant="outline" onClick={doExport} disabled={!data.total || exporting} className="gap-2 h-9 sm:h-10 flex-1 sm:flex-none">
           <Download className="w-4 h-4" /> {exporting ? 'Exporting…' : 'Export CSV'}
         </Button>
-        <Button onClick={() => setAddOpen(true)} disabled={!jobs.length} className="bg-slate-800 hover:bg-slate-900 gap-2 h-9 sm:h-10 flex-1 sm:flex-none">
+        <Button onClick={() => setAddOpen(true)} disabled={!jobs.length} className="gap-2 h-9 sm:h-10 flex-1 sm:flex-none">
           <UserPlus className="w-4 h-4" /> Add candidate
         </Button>
       </PageHeader>

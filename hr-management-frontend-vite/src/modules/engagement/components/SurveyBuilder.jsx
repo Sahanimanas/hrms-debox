@@ -205,7 +205,7 @@ export default function SurveyBuilder({ survey, onClose, onSaved }) {
           {(!editing || survey.status === 'draft') && (
             <Button variant="outline" onClick={() => save(false)} disabled={saving}>Save draft</Button>
           )}
-          <Button className="bg-slate-800 hover:bg-slate-900" onClick={() => save(!editing || survey.status === 'draft')} disabled={saving}>
+          <Button onClick={() => save(!editing || survey.status === 'draft')} disabled={saving}>
             {saving ? 'Saving…' : editing && survey.status !== 'draft' ? 'Save changes' : 'Publish'}
           </Button>
         </DialogFooter>

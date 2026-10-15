@@ -539,7 +539,7 @@ const LeavesPage = () => {
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="apply-leave-btn" className="bg-slate-800 hover:bg-slate-900 rounded-full">
+            <Button data-testid="apply-leave-btn" className="rounded-full">
               <Plus className="w-4 h-4 mr-2" />
               Apply Leaveiiiiiii
             </Button>
@@ -858,7 +858,7 @@ const LeavesPage = () => {
                   id="leave-submit-btn"
                   type="submit"
                   data-testid="submit-leave-btn"
-                  className="flex-1 bg-slate-800 hover:bg-slate-900"
+                  className="flex-1"
                   disabled={
                     submitting ||
                     leaveForm.dates.length === 0 ||

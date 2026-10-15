@@ -82,11 +82,11 @@ export default function MyAssetsPage() {
   const pendingAck = data.assets.filter(a => !a.acknowledged_at).length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <PageHeader icon={Laptop} title="My Assets" subtitle="Company equipment issued to you, requests and issues">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={doExport} disabled={!data.assets.length}><Download className="w-4 h-4" /> Export CSV</Button>
-          <Button size="sm" className="gap-1.5 bg-slate-800 hover:bg-slate-900" onClick={() => setRequestOpen(true)}><Plus className="w-4 h-4" /> Request an asset</Button>
+          <Button size="sm" className="gap-1.5" onClick={() => setRequestOpen(true)}><Plus className="w-4 h-4" /> Request an asset</Button>
         </PageHeader>
 
         {loading ? <Loading label="Loading your assets…" /> : error ? <Card className="border-0 shadow-md"><ErrorState message={error} onRetry={load} /></Card> : (
@@ -269,7 +269,7 @@ function RequestDialog({ categories, onClose, onDone }) {
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={saving} className="bg-slate-800 hover:bg-slate-900">{saving ? 'Submitting…' : 'Submit request'}</Button>
+          <Button onClick={submit} disabled={saving}>{saving ? 'Submitting…' : 'Submit request'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -926,7 +926,7 @@ const LeaveBalancePage = () => {
                   disabled={leaveTypes.length === 0 || leaveTypesError}
                   className={`flex-1 ${adjustForm.adjustment_type === 'add'
                       ? 'bg-emerald-600 hover:bg-emerald-700'
-                      : 'bg-slate-800 hover:bg-slate-900'
+                      : ''
                     }`}
                 >
                   {adjustForm.adjustment_type === 'add' ? 'Add Leaves' : 'Deduct Leaves'}

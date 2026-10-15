@@ -78,7 +78,7 @@ function PolicyViewer({ policyId, onClose, onAcknowledged }) {
                     <Checkbox checked={agree} onCheckedChange={v => setAgree(!!v)} className="mt-0.5" />
                     I have read and understood this policy (version {p.version}) and agree to follow it.
                   </label>
-                  <Button className="bg-slate-800 hover:bg-slate-900 w-full sm:w-auto" disabled={!agree || saving} onClick={acknowledge}>
+                  <Button className="w-full sm:w-auto" disabled={!agree || saving} onClick={acknowledge}>
                     {saving ? 'Saving…' : 'I have read and agree'}
                   </Button>
                 </div>
@@ -315,7 +315,7 @@ function PolicyEditor({ mode, policy, onClose, onSaved }) {
         </div>
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button className="bg-slate-800 hover:bg-slate-900 gap-2" onClick={save} disabled={saving}>
+          <Button className="gap-2" onClick={save} disabled={saving}>
             {mode !== 'edit' && <Upload className="w-4 h-4" />}
             {saving ? 'Saving…' : mode === 'edit' ? 'Save' : 'Publish'}
           </Button>

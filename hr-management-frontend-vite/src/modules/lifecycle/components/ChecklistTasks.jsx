@@ -80,7 +80,7 @@ const ChecklistTasks = ({ tasks, canEdit, onUpdate, showCategory = false, showDu
                   <div className="mt-2 space-y-2">
                     <Textarea rows={2} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Add a note" />
                     <div className="flex gap-2">
-                      <Button size="sm" className="h-7 text-xs bg-slate-800 hover:bg-slate-900" disabled={busy === task.id} onClick={() => saveNotes(task)}>Save</Button>
+                      <Button size="sm" className="h-7 text-xs" disabled={busy === task.id} onClick={() => saveNotes(task)}>Save</Button>
                       <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setOpenNotes(null)}>Cancel</Button>
                     </div>
                   </div>

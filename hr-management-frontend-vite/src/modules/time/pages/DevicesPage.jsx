@@ -36,7 +36,7 @@ const KeyDialog = ({ apiKey, onClose }) => (
           <p>The earliest punch of the day becomes the clock-in and the latest the clock-out. Re-sending the same punches is safe.</p>
         </div>
       </div>
-      <DialogFooter><Button onClick={onClose} className="bg-slate-800 hover:bg-slate-900">Done</Button></DialogFooter>
+      <DialogFooter><Button onClick={onClose}>Done</Button></DialogFooter>
     </DialogContent>
   </Dialog>
 );
@@ -134,7 +134,7 @@ const DevicesPage = () => {
   const pending = Object.keys(edits).length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2 sm:gap-3">
@@ -146,7 +146,7 @@ const DevicesPage = () => {
               <p className="text-xs sm:text-sm text-slate-600">Biometric and RFID machines that send punches automatically</p>
             </div>
           </div>
-          <Button onClick={() => setShowNew(true)} className="bg-slate-800 hover:bg-slate-900 gap-2 w-full sm:w-auto"><Plus className="w-4 h-4" /> Add device</Button>
+          <Button onClick={() => setShowNew(true)} className="gap-2 w-full sm:w-auto"><Plus className="w-4 h-4" /> Add device</Button>
         </div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -201,7 +201,7 @@ const DevicesPage = () => {
               ])}>
                 <Download className="w-4 h-4" /> Export CSV
               </Button>
-              <Button onClick={saveMapping} disabled={!pending} className="bg-slate-800 hover:bg-slate-900 gap-1.5">
+              <Button onClick={saveMapping} disabled={!pending} className="gap-1.5">
                 <Save className="w-4 h-4" /> Save{pending ? ` (${pending})` : ''}
               </Button>
             </div>
@@ -261,7 +261,7 @@ const DevicesPage = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNew(false)}>Cancel</Button>
-            <Button onClick={create} disabled={!form.name.trim()} className="bg-slate-800 hover:bg-slate-900">Add device</Button>
+            <Button onClick={create} disabled={!form.name.trim()}>Add device</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

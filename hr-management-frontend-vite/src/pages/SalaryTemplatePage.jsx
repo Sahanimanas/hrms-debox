@@ -126,7 +126,7 @@ const SalaryTemplatePage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8">
+    <div className="min-h-screen bg-canvas p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-slate-900 mb-2" style={{ fontFamily: 'Plus Jakarta Sans' }}>
@@ -309,7 +309,7 @@ const SalaryTemplatePage = () => {
           <Button
             onClick={handleSave}
             disabled={saving}
-            className="bg-slate-800 hover:bg-slate-900 px-8 py-6 text-lg"
+            className="px-8 py-6 text-lg"
           >
             <Save className="w-5 h-5 mr-2" />
             {saving ? 'Saving Template...' : 'Save Template'}
