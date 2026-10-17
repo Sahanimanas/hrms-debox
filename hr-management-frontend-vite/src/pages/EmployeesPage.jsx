@@ -162,9 +162,10 @@ const EmployeesPage = () => {
     e.preventDefault();
     const phoneProblem = phoneError(employeeForm.phone, { required: true });
     const passwordProblem = passwordPolicyMessage(employeeForm.password);
-    if (phoneProblem || passwordProblem) {
+    const departmentProblem = employeeForm.department ? null : 'Please select a department';
+    if (phoneProblem || passwordProblem || departmentProblem) {
       setSubmitAttempted(true);
-      toast.error(phoneProblem || passwordProblem);
+      toast.error(departmentProblem || phoneProblem || passwordProblem);
       return;
     }
     setSubmitting(true);
@@ -225,13 +226,16 @@ const EmployeesPage = () => {
     setSubmitting(true);
 
     try {
-      const originalEmployee = employees.find(emp => emp.id === selectedEmployee.id);
+      const originalEmployee = employees.find(emp => emp.email === selectedEmployee.email);
 
       // First update the employee profile
-      await api.put(`/employees/${selectedEmployee.id}`, {
-        full_name: selectedEmployee.full_name,
-        department: selectedEmployee.department,
-        designation: selectedEmployee.designation,
+      // Email is unique; employee_id can be missing or duplicated in legacy data
+      const employeeRef = encodeURIComponent(selectedEmployee.email);
+      await api.put(`/employees/${employeeRef}`, {
+        // undefined drops the key: the API rejects null/empty for these
+        full_name: selectedEmployee.full_name || undefined,
+        department: selectedEmployee.department || undefined,
+        designation: selectedEmployee.designation || undefined,
         phone: selectedEmployee.phone,
         monthly_salary: selectedEmployee.monthly_salary || null,
         organization_id:
@@ -250,7 +254,7 @@ const EmployeesPage = () => {
 
       // If role changed, update it separately
       if (originalEmployee.role !== selectedEmployee.role) {
-        await api.put(`/employees/${selectedEmployee.id}/role`, {
+        await api.put(`/employees/${employeeRef}/role`, {
           role: selectedEmployee.role
         });
       }
@@ -270,7 +274,7 @@ const EmployeesPage = () => {
     setSendingReset(true);
     try {
       const response = await api.post('/password-reset/admin/send', {
-        employee_ids: resetTargets.map(emp => emp.id)
+        employee_ids: resetTargets.map(emp => emp.email)
       });
       const { sent = [], failed = [], skipped = [] } = response.data;
       if (sent.length) {
@@ -335,8 +339,8 @@ const EmployeesPage = () => {
   const pageEmployees = filteredEmployees.slice(pageStart, pageStart + pageSize);
 
   // Row selection (bulk actions)
-  const selectedEmployees = employees.filter(emp => selectedIds.has(emp.id));
-  const pageSelectedCount = pageEmployees.filter(emp => selectedIds.has(emp.id)).length;
+  const selectedEmployees = employees.filter(emp => selectedIds.has(emp.email));
+  const pageSelectedCount = pageEmployees.filter(emp => selectedIds.has(emp.email)).length;
   const headerChecked = pageEmployees.length > 0 && pageSelectedCount === pageEmployees.length
     ? true
     : pageSelectedCount > 0 ? 'indeterminate' : false;
@@ -351,7 +355,7 @@ const EmployeesPage = () => {
   const togglePage = (checked) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
-      pageEmployees.forEach(emp => (checked ? next.add(emp.id) : next.delete(emp.id)));
+      pageEmployees.forEach(emp => (checked ? next.add(emp.email) : next.delete(emp.email)));
       return next;
     });
   };
@@ -370,6 +374,8 @@ const EmployeesPage = () => {
   };
 
   const departmentCount = new Set(employees.map(e => e.department).filter(Boolean)).size;
+  // Saved departments plus any already on employee records, so filters/edit show every value
+  const departmentOptions = [...new Set([...departments, ...employees.map(e => e.department)].filter(Boolean))];
   const orgCount = organizations.length;
   const subtitle = `${employees.length} ${employees.length === 1 ? 'person' : 'people'} across ${departmentCount} department${departmentCount === 1 ? '' : 's'}`
     + (orgCount > 1 ? ` and ${orgCount} organizations` : '');
@@ -413,8 +419,8 @@ const EmployeesPage = () => {
 
   const renderRowActions = (employee) => (
     <Popover
-      open={actionMenuId === employee.id}
-      onOpenChange={(o) => setActionMenuId(o ? employee.id : null)}
+      open={actionMenuId === employee.email}
+      onOpenChange={(o) => setActionMenuId(o ? employee.email : null)}
     >
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${employee.full_name}`}>
@@ -694,7 +700,7 @@ const EmployeesPage = () => {
               <div>
                 <Label>Full Name *</Label>
                 <Input
-                  value={selectedEmployee.full_name}
+                  value={selectedEmployee.full_name || ''}
                   onChange={(e) =>
                     setSelectedEmployee({ ...selectedEmployee, full_name: e.target.value })
                   }
@@ -762,7 +768,7 @@ const EmployeesPage = () => {
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent>
-                    {departments.map(dept => (
+                    {departmentOptions.map(dept => (
                       <SelectItem key={dept} value={dept}>
                         {dept}
                       </SelectItem>
@@ -775,7 +781,7 @@ const EmployeesPage = () => {
               <div>
                 <Label>Designation *</Label>
                 <Input
-                  value={selectedEmployee.designation}
+                  value={selectedEmployee.designation || ''}
                   onChange={(e) =>
                     setSelectedEmployee({ ...selectedEmployee, designation: e.target.value })
                   }
@@ -956,7 +962,7 @@ const EmployeesPage = () => {
             label="Department"
             value={filterDepartment}
             onValueChange={withPageReset(setFilterDepartment)}
-            options={departments.map(dept => ({ value: dept, label: dept }))}
+            options={departmentOptions.map(dept => ({ value: dept, label: dept }))}
           />
           {organizations.length > 0 && (
             <FilterSelect
@@ -1071,10 +1077,10 @@ const EmployeesPage = () => {
             </TableHeader>
             <TableBody>
               {pageEmployees.map((employee) => {
-                const selected = selectedIds.has(employee.id);
+                const selected = selectedIds.has(employee.email);
                 return (
                   <TableRow
-                    key={employee.id}
+                    key={employee.email}
                     data-testid={`employee-card-${employee.id}`}
                     data-state={selected ? 'selected' : undefined}
                     className="data-[state=selected]:bg-brand-subtle"
@@ -1082,7 +1088,7 @@ const EmployeesPage = () => {
                     <TableCell className="py-3.5 pl-5 pr-2 [&>[role=checkbox]]:translate-y-0">
                       <TableCheckbox
                         checked={selected}
-                        onCheckedChange={(v) => toggleRow(employee.id, v === true)}
+                        onCheckedChange={(v) => toggleRow(employee.email, v === true)}
                         aria-label={`Select ${employee.full_name}`}
                       />
                     </TableCell>
@@ -1114,7 +1120,7 @@ const EmployeesPage = () => {
               const s = EMPLOYMENT_STATUS[statusOf(employee)];
               return (
                 <Card
-                  key={employee.id}
+                  key={employee.email}
                   data-testid={`employee-card-${employee.id}`}
                   className="transition-shadow hover:shadow-sm"
                 >
@@ -1222,7 +1228,7 @@ const EmployeesPage = () => {
               {resetTargets.length > 1 && (
                 <ul className="text-sm text-ink-secondary max-h-40 overflow-y-auto border border-line rounded-md p-2 space-y-1">
                   {resetTargets.map(emp => (
-                    <li key={emp.id} className="truncate">{emp.full_name} <span className="text-ink-muted">· {emp.email}</span></li>
+                    <li key={emp.email} className="truncate">{emp.full_name} <span className="text-ink-muted">· {emp.email}</span></li>
                   ))}
                 </ul>
               )}

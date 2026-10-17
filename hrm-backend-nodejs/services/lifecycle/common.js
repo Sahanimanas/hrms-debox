@@ -60,10 +60,10 @@ const dateFromStr = (dateStr) => (dateStr ? new Date(`${dateStr}T12:00:00Z`) : n
 
 const uidOf = (employee) => (employee ? employeeUid(employee) : null);
 
-/** Find an employee by any of its identifiers (employee_id code, legacy employee_code, uuid id). */
+/** Find an employee by any of its identifiers (employee_id code, legacy employee_code, uuid id, email). */
 const findEmployeeByUid = (db, uid) => {
   if (!uid || typeof uid !== 'string') return null;
-  return db.collection('employees').findOne({ $or: [{ employee_id: uid }, { employee_code: uid }, { id: uid }] });
+  return db.collection('employees').findOne({ $or: [{ employee_id: uid }, { employee_code: uid }, { id: uid }, { email: uid }] });
 };
 
 const findMyEmployee = (db, email) => db.collection('employees').findOne({ email });

@@ -319,10 +319,13 @@ router.post('/admin/send', authenticate, requireRole([UserRole.ADMIN]), async (r
       return res.status(400).json({ detail: `At most ${MAX_ADMIN_BATCH} employees per request` });
     }
 
+    // ids may be emails (unique) or employee_id codes
+    const emails = ids.filter((id) => id.includes('@'));
+    const codes = ids.filter((id) => !id.includes('@'));
     const employees = await db.collection('employees')
-      .find({ employee_id: { $in: ids } }, { projection: EMPLOYEE_PROJECTION })
+      .find({ $or: [{ email: { $in: emails } }, { employee_id: { $in: codes } }] }, { projection: EMPLOYEE_PROJECTION })
       .toArray();
-    const found = new Set(employees.map((e) => e.employee_id));
+    const found = new Set(employees.flatMap((e) => [e.email, e.employee_id]));
 
     const sent = [];
     const failed = [];

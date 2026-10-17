@@ -25,6 +25,26 @@ const employeeCreateSchema = schemas.employeeCreate.keys({
 const SELF_EDITABLE_FIELDS = ['full_name', 'phone'];
 
 /**
+ * Resolve the employee a route param refers to. Email is unique, so it is
+ * preferred; otherwise match employee_id (may be duplicated in legacy data),
+ * then the uuid id. Returns null when nothing matches.
+ */
+async function resolveEmployeeRef(db, ref) {
+  const employees = db.collection('employees');
+  if (!ref) return null;
+  if (ref.includes('@')) {
+    return employees.findOne({ email: ref }, { projection: { _id: 0 } });
+  }
+  const matches = await employees.find({ employee_id: ref }, { projection: { _id: 0 } }).toArray();
+  if (matches.length > 1) {
+    console.warn(`WARNING: Multiple employees found with employee_id ${ref}. This indicates data corruption.`);
+    return matches.find(e => e.role !== 'admin') || matches[0];
+  }
+  if (matches.length === 1) return matches[0];
+  return employees.findOne({ id: ref }, { projection: { _id: 0 } });
+}
+
+/**
  * Atomically increment the employee ID counter and return the settings
  * document after the increment (driver v6 returns the document directly;
  * older drivers wrapped it in { value }). Counter starts at 1000 if unset.
@@ -222,7 +242,7 @@ router.get('/', authenticate, requireRole([UserRole.ADMIN, UserRole.MANAGER]), a
       if (typeof emp.created_at === 'string') {
         emp.created_at = new Date(emp.created_at);
       }
-      emp.id = emp.employee_id;
+      emp.id = emp.employee_id || emp.id || emp.email;
 
       // Ensure comp_off exists in leave_balance
       if (emp.leave_balance && !('comp_off' in emp.leave_balance)) {
@@ -433,30 +453,10 @@ router.put('/:userId', authenticate, validate(schemas.employeeUpdate), async (re
     const { userId } = req.params;
     const updateData = req.validatedBody;
 
-    // ============================================
-    // FIX: Find by employee_id but get the specific one
-    // If there are duplicates, we need to be more careful
-    // ============================================
-
-    // First, check how many employees have this ID
-    const employeesWithId = await db.collection('employees')
-      .find({ employee_id: userId }, { projection: { _id: 0 } })
-      .toArray();
-
-    if (employeesWithId.length === 0) {
+    // Accepts email (unique), employee_id or uuid id
+    const employee = await resolveEmployeeRef(db, userId);
+    if (!employee) {
       return res.status(404).json({ detail: 'Employee not found' });
-    }
-
-    // If there are multiple employees with same ID (data corruption), 
-    // we need to identify which one to update
-    let employee;
-    if (employeesWithId.length > 1) {
-      console.warn(`WARNING: Multiple employees found with employee_id ${userId}. This indicates data corruption.`);
-      // Try to match by additional criteria from request if available
-      // For now, log the issue and use the non-admin one (as admin should have unique setup)
-      employee = employeesWithId.find(e => e.role !== 'admin') || employeesWithId[0];
-    } else {
-      employee = employeesWithId[0];
     }
 
     // Find corresponding user by EMAIL (more reliable)
@@ -592,24 +592,10 @@ router.put('/:userId/role', authenticate, requireRole([UserRole.ADMIN]), validat
     const { userId } = req.params;
     const { role } = req.validatedBody;
 
-    // ============================================
-    // FIX: Handle potential duplicate employee_ids
-    // ============================================
-    const employeesWithId = await db.collection('employees')
-      .find({ employee_id: userId }, { projection: { _id: 0 } })
-      .toArray();
-
-    if (employeesWithId.length === 0) {
+    // Accepts email (unique), employee_id or uuid id
+    const employee = await resolveEmployeeRef(db, userId);
+    if (!employee) {
       return res.status(404).json({ detail: 'Employee not found' });
-    }
-
-    // If duplicates exist, select the non-admin or first one
-    let employee;
-    if (employeesWithId.length > 1) {
-      console.warn(`WARNING: Multiple employees found with employee_id ${userId}`);
-      employee = employeesWithId.find(e => e.role !== 'admin') || employeesWithId[0];
-    } else {
-      employee = employeesWithId[0];
     }
 
     // Find user by email
