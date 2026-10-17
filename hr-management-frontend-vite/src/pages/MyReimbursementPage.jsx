@@ -167,7 +167,7 @@ const MyReimbursementsPage = () => {
 
   return (
     <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
-      <div className="max-w-5xl mx-auto">
+      <div className="w-full">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-5 sm:mb-8">
           <div className="flex items-center gap-2 sm:gap-3">

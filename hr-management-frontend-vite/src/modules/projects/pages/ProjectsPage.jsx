@@ -47,7 +47,7 @@ export default function ProjectsPage() {
   const personName = (email) => people.find(p => p.email === email)?.name || email;
 
   return (
-    <div className="p-3 sm:p-4 md:p-8 max-w-7xl mx-auto space-y-5">
+    <div className="p-3 sm:p-4 md:p-8 w-full space-y-5">
       <PageHeader icon={FolderKanban} title="Projects" subtitle="Every project you lead, belong to or can view">
         {meta?.can_create_projects && <Button className="gap-1.5" onClick={() => setCreating(true)} data-testid="new-project-btn"><Plus className="w-4 h-4" /> New project</Button>}
       </PageHeader>

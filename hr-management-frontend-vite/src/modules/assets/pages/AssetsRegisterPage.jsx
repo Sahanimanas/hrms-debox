@@ -108,7 +108,7 @@ export default function AssetsRegisterPage() {
 
   return (
     <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
+      <div className="w-full space-y-5 sm:space-y-6">
         <PageHeader icon={Package} title="Asset Register" subtitle="Company assets, who has them and their condition">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setCatsOpen(true)}><Tags className="w-4 h-4" /> Categories</Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setImportOpen(true)}><Upload className="w-4 h-4" /> Import CSV</Button>

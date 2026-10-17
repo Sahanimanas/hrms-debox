@@ -18,7 +18,7 @@ const PageHeader = ({ title, subtitle, children }) => (
 
 export const PageShell = ({ children }) => (
   <div className="min-h-full bg-canvas p-4 sm:p-6 lg:p-8">
-    <div className="max-w-[1376px] mx-auto space-y-6">{children}</div>
+    <div className="w-full space-y-6">{children}</div>
   </div>
 );
 

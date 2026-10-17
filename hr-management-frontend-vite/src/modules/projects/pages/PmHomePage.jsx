@@ -34,7 +34,7 @@ export default function PmHomePage() {
   const active = projects.filter(p => !['completed', 'cancelled'].includes(p.status));
 
   return (
-    <div className="p-3 sm:p-4 md:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-3 sm:p-4 md:p-8 w-full space-y-6">
       <PageHeader icon={LayoutDashboard} title={`${greeting()}, ${(user?.full_name || '').split(' ')[0] || 'there'}`} subtitle="Here's what's on your plate across all projects">
         {projects.length > 0 && <Button variant="outline" className="gap-1.5 bg-white" onClick={() => setNewTask(true)}><Plus className="w-4 h-4" /> New task</Button>}
         {meta?.can_create_projects && <Button className="gap-1.5" onClick={() => setNewProject(true)} data-testid="home-new-project"><FolderKanban className="w-4 h-4" /> New project</Button>}

@@ -133,7 +133,7 @@ const CompOffApprovalsPage = () => {
 
   return (
     <div className="min-h-screen bg-canvas p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
+      <div className="w-full">
         {/* Header */}
         <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">

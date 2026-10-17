@@ -26,9 +26,9 @@ export const PageHeader = ({ icon, title, subtitle, children }) => {
   );
 };
 
-export const PageShell = ({ children, wide = false }) => (
+export const PageShell = ({ children }) => (
   <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
-    <div className={`${wide ? 'max-w-[1400px]' : 'max-w-6xl'} mx-auto space-y-5 sm:space-y-6`}>{children}</div>
+    <div className="w-full space-y-5 sm:space-y-6">{children}</div>
   </div>
 );
 

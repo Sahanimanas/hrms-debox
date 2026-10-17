@@ -83,7 +83,7 @@ export default function MyAssetsPage() {
 
   return (
     <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
+      <div className="w-full space-y-5 sm:space-y-6">
         <PageHeader icon={Laptop} title="My Assets" subtitle="Company equipment issued to you, requests and issues">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={doExport} disabled={!data.assets.length}><Download className="w-4 h-4" /> Export CSV</Button>
           <Button size="sm" className="gap-1.5" onClick={() => setRequestOpen(true)}><Plus className="w-4 h-4" /> Request an asset</Button>

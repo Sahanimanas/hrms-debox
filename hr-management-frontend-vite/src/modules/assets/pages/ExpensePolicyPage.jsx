@@ -25,7 +25,7 @@ export default function ExpensePolicyPage() {
   const tab = params.get('tab') === 'per-diem' ? 'per-diem' : 'policies';
   return (
     <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
+      <div className="w-full space-y-5 sm:space-y-6">
         <PageHeader icon={ShieldCheck} title="Expense Policy" subtitle="Category limits for reimbursements and per-diem rates for travel" />
         <Tabs value={tab} onValueChange={(v) => setParams(v === 'per-diem' ? { tab: 'per-diem' } : {}, { replace: true })}>
           <TabsList className="bg-white shadow-sm">

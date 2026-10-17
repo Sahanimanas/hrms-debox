@@ -122,7 +122,7 @@ export default function AssetDetailPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
-        <div className="max-w-6xl mx-auto">
+        <div className="w-full">
           <Link to={backHref} className="text-sm text-slate-600 inline-flex items-center gap-1 mb-4"><ArrowLeft className="w-4 h-4" /> Back</Link>
           <Card className="border-0 shadow-md"><ErrorState message={error} onRetry={load} /></Card>
         </div>
@@ -136,7 +136,7 @@ export default function AssetDetailPage() {
 
   return (
     <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
+      <div className="w-full space-y-5 sm:space-y-6">
         <Link to={backHref} className="text-sm text-slate-600 hover:text-slate-900 inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> {isAdmin ? 'Asset register' : 'My assets'}</Link>
         <PageHeader icon={Package} title={`${asset.asset_tag} · ${asset.name}`} subtitle={`${categoryLabel(categories, asset.category)}${asset.brand ? ` · ${asset.brand}` : ''}${asset.model ? ` ${asset.model}` : ''}`}>
           {isAdmin && (

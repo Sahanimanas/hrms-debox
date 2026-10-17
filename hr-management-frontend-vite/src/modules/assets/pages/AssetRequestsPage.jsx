@@ -88,7 +88,7 @@ export default function AssetRequestsPage() {
 
   return (
     <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-5 sm:space-y-6">
+      <div className="w-full space-y-5 sm:space-y-6">
         <PageHeader icon={ClipboardList} title="Asset Requests" subtitle="Approve and fulfil requests, and handle reported issues">
           <Button variant="outline" size="sm" className="gap-1.5" onClick={doExport}><Download className="w-4 h-4" /> Export CSV</Button>
         </PageHeader>

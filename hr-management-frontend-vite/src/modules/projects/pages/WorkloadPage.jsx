@@ -54,7 +54,7 @@ export default function WorkloadPage() {
   const dates = Array.from({ length: span }, (_, i) => addDays(from, i));
 
   return (
-    <div className="p-3 sm:p-4 md:p-8 max-w-7xl mx-auto space-y-5">
+    <div className="p-3 sm:p-4 md:p-8 w-full space-y-5">
       <PageHeader icon={Gauge} title="Workload" subtitle="Who has capacity — combines task estimates with HR shifts, holidays and leave" />
 
       <div className="flex flex-wrap items-center gap-2">

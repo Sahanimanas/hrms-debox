@@ -714,7 +714,7 @@ const SalaryStructurePage = () => {
 
   return (
     <div className="min-h-screen bg-canvas p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
+      <div className="w-full">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">

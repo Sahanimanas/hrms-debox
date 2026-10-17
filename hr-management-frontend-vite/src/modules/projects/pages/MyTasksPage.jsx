@@ -40,7 +40,7 @@ export default function MyTasksPage() {
   const groups = useMemo(() => BUCKETS.map(b => ({ ...b, tasks: (data || []).filter(t => bucketOf(t, today) === b.key) })).filter(g => g.tasks.length), [data, today]);
 
   return (
-    <div className="p-3 sm:p-4 md:p-8 max-w-6xl mx-auto space-y-5">
+    <div className="p-3 sm:p-4 md:p-8 w-full space-y-5">
       <PageHeader icon={CheckSquare} title="My Tasks" subtitle="Your work across every project, by due date">
         <Button className="gap-1.5" onClick={() => setCreating(true)}><Plus className="w-4 h-4" /> New task</Button>
       </PageHeader>

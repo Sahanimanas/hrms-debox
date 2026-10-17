@@ -14,7 +14,7 @@ export function PageShell({ icon, title, subtitle, actions, children }) {
   const Icon = icon;
   return (
     <div className="p-3 sm:p-6 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6">
+      <div className="w-full space-y-4 sm:space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-800 rounded-xl flex items-center justify-center shrink-0">

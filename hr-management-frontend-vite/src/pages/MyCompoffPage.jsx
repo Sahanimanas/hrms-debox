@@ -151,7 +151,7 @@ const MyCompOffPage = () => {
 
   return (
     <div className="min-h-screen bg-canvas p-3 sm:p-4 md:p-8">
-      <div className="max-w-5xl mx-auto">
+      <div className="w-full">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-5 sm:mb-8">
           <div className="flex items-center gap-2 sm:gap-3">
@@ -364,22 +364,18 @@ const MyCompOffPage = () => {
               <div>
                 <Label className="text-slate-700 font-medium text-xs sm:text-sm">Comp-Off Days *</Label>
                 <div className="flex gap-2 sm:gap-3 mt-1 sm:mt-1.5">
-                  <Button
-                    type="button"
-                    variant={formData.days === '0.5' ? 'default' : 'outline'}
-                    className={`flex-1 text-xs sm:text-sm h-9 sm:h-10 ${formData.days === '0.5' ? 'bg-slate-800 hover:bg-slate-900' : ''}`}
-                    onClick={() => setFormData({ ...formData, days: '0.5' })}
-                  >
-                    Half Day
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={formData.days === '1' ? 'default' : 'outline'}
-                    className={`flex-1 text-xs sm:text-sm h-9 sm:h-10 ${formData.days === '1' ? 'bg-slate-800 hover:bg-slate-900' : ''}`}
-                    onClick={() => setFormData({ ...formData, days: '1' })}
-                  >
-                    Full Day
-                  </Button>
+                  {[['0.5', 'Half Day'], ['1', 'Full Day']].map(([value, label]) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      variant="outline"
+                      aria-pressed={formData.days === value}
+                      className={`flex-1 text-xs sm:text-sm h-9 sm:h-10 ${formData.days === value ? 'border-brand bg-brand-subtle text-brand-text hover:bg-brand-subtle' : ''}`}
+                      onClick={() => setFormData({ ...formData, days: value })}
+                    >
+                      {label}
+                    </Button>
+                  ))}
                 </div>
               </div>
 
