@@ -12,6 +12,19 @@ const phoneField = Joi.string().trim().max(20)
   .messages({ 'string.pattern.base': 'Enter a valid phone number with country code', 'string.max': 'Phone number is too long' })
   .allow(null, '');
 
+// Work email: trimmed, a real address, no quotes or spaces (it is also the login id)
+const emailField = Joi.string().trim().max(254).email()
+  .pattern(/^[^\s"'\\<>]+$/)
+  .messages({ 'string.email': 'Enter a valid email address', 'string.pattern.base': 'Enter a valid email address' });
+
+// Person name: 2–100 characters, starts with a letter; letters, digits, space . ' -
+const personNameField = Joi.string().trim().min(2).max(100)
+  .pattern(/^[\p{L}\p{M}][\p{L}\p{M}\p{N} .'-]*$/u)
+  .messages({
+    'string.min': 'Name must be at least 2 characters',
+    'string.pattern.base': 'Name must start with a letter and contain only letters, numbers, spaces and . \' -'
+  });
+
 // Enums
 const UserRole = {
   ADMIN: 'admin',
@@ -129,9 +142,9 @@ const schemas = {
 
   // Employee
   employeeCreate: Joi.object({
-    email: Joi.string().email().required(),
+    email: emailField.required(),
     password: passwordField().required(),
-    full_name: Joi.string().required(),
+    full_name: personNameField.required(),
     role: Joi.string().valid(...Object.values(UserRole)).required(),
     department: Joi.string().required(),
     designation: Joi.string().required(),
@@ -149,14 +162,19 @@ const schemas = {
   }),
 
   employeeUpdate: Joi.object({
-    full_name: Joi.string(),
+    full_name: personNameField,
     department: Joi.string(),
-    designation: Joi.string(),
+    designation: Joi.string().trim().max(100),
     phone: phoneField,
-    monthly_salary: Joi.number().allow(null, ''),
+    monthly_salary: Joi.number().min(0).allow(null, '')
+      .messages({ 'number.min': 'Monthly salary cannot be negative' }),
     organization_id: Joi.string().allow(null, ''),
     manager_email: Joi.string().email().allow(null, ''),
     joining_date: Joi.date().allow(null)  // Added joining_date to update schema
+  }),
+
+  emailUpdate: Joi.object({
+    email: emailField.required()
   }),
 
   roleUpdate: Joi.object({

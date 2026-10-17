@@ -228,6 +228,28 @@ class Db {
 
   async createCollection(name) { await this._ensureTable(name); return this.collection(name); }
 
+  /**
+   * Rewrite every JSON string value exactly equal to `from` (at any depth) as
+   * `to`, across all collections except `exclude`, in one transaction.
+   * Used to rename an identifier such as an email. Returns { collection: docs }.
+   */
+  async replaceStringValue(from, to, { exclude = [] } = {}) {
+    const needle = JSON.stringify(String(from));
+    const replacement = JSON.stringify(String(to));
+    const names = (await this.listCollections().toArray()).map(c => c.name).filter(n => !exclude.includes(n));
+    return this._tx(async (c) => {
+      const counts = {};
+      for (const name of names) {
+        const { rowCount } = await c.query(
+          `UPDATE ${this._tableRef(name)} SET doc = replace(doc::text, $1, $2)::jsonb WHERE strpos(doc::text, $1) > 0`,
+          [needle, replacement]
+        );
+        if (rowCount) counts[name] = rowCount;
+      }
+      return counts;
+    });
+  }
+
   async command(cmd) {
     if (cmd.ping) { await this._pool.query('SELECT 1'); return { ok: 1 }; }
     if (cmd.dropDatabase) { await this.dropDatabase(); return { ok: 1 }; }

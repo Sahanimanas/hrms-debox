@@ -1,6 +1,6 @@
 // Integration checks for the shared platform pieces (module loader, scheduler, file storage)
 import { createRequire } from 'node:module';
-import { run, section, check, get, post, put, bootstrap, createUser, withDb, BASE } from '../lib/harness.mjs';
+import { run, section, check, get, post, put, bootstrap, createUser, withDb, login, BASE } from '../lib/harness.mjs';
 
 const require = createRequire(import.meta.url);
 const ORIGIN = BASE.replace(/\/api$/, '');
@@ -167,4 +167,35 @@ async function identityChecks(admin, emp) {
   section('Phone validation');
   r = await post('/employees', admin, { email: `phone.${Date.now()}@t.test`, password: 'Pass@1234', full_name: 'Phone Test', role: 'employee', department: 'HR', designation: 'X', phone: 'abcxyz' });
   check('letters in the phone number are rejected', r.s === 422, r);
+
+  section('Employee field validation');
+  const base = { password: 'Pass@1234', role: 'employee', department: 'HR', designation: 'X' };
+  r = await post('/employees', admin, { ...base, email: 'not-an-email', full_name: 'Valid Name' });
+  check('invalid email rejected on create', r.s === 422, r);
+  r = await post('/employees', admin, { ...base, email: `name.${Date.now()}@t.test`, full_name: '123' });
+  check('name that does not start with a letter rejected', r.s === 422, r);
+  r = await post('/employees', admin, { ...base, email: `name2.${Date.now()}@t.test`, full_name: 'A' });
+  check('one-letter name rejected', r.s === 422, r);
+
+  section('Change employee email');
+  const mgr = await createUser(admin, { role: 'manager' });
+  const directReport = await createUser(admin, { role: 'employee', manager_email: mgr.email });
+  const newMgrEmail = `renamed.${Date.now()}@example.com`;
+  r = await put(`/employees/${encodeURIComponent(mgr.email)}/email`, directReport.token, { email: newMgrEmail });
+  check('only admins can change an email', r.s === 403, r);
+  r = await put(`/employees/${encodeURIComponent(mgr.email)}/email`, admin, { email: 'bad email' });
+  check('invalid new email rejected', r.s === 422, r);
+  r = await put(`/employees/${encodeURIComponent(mgr.email)}/email`, admin, { email: directReport.email });
+  check('email already used by someone else rejected with 409', r.s === 409, r);
+  r = await put(`/employees/${encodeURIComponent(mgr.email)}/email`, admin, { email: newMgrEmail });
+  check('admin changes the email', r.s === 200 && r.d?.employee?.email === newMgrEmail && !r.d?.access_token, r);
+  r = await get('/employees', admin);
+  const reportRow = (r.d || []).find(e => e.email === directReport.email);
+  check('direct report now points at the new manager email', reportRow?.manager_email === newMgrEmail, reportRow);
+  check('old email no longer listed', !(r.d || []).some(e => e.email === mgr.email), null);
+  r = await get('/auth/me', mgr.token);
+  check('session issued for the old email stops working', r.s === 401, r);
+  let renamedToken = null;
+  try { renamedToken = await login(newMgrEmail); } catch { /* checked below */ }
+  check('can sign in with the new email', !!renamedToken, null);
 }

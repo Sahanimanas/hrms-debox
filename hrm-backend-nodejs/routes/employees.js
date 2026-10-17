@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDB } = require('../config/database');
-const { authenticate, getCurrentEmployee } = require('../middleware/auth');
+const { authenticate, getCurrentEmployee, createAccessToken } = require('../middleware/auth');
 const { requireRole, validate } = require('../middleware/roleCheck');
 const { schemas, UserRole, defaultLeaveBalance } = require('../models/schemas');
 const { hashPassword, generateUUID, normalizeLeaveType } = require('../utils/helpers');
@@ -256,7 +256,8 @@ router.post('/', authenticate, requireRole([UserRole.ADMIN]), validate(employeeC
     const now = new Date();
 
     // Check if user already exists
-    const existingUser = await db.collection('users').findOne({ email: employeeData.email });
+    const existingUser = await db.collection('users').findOne({ email: employeeData.email })
+      || await db.collection('employees').findOne({ email: employeeData.email });
     if (existingUser) {
       return res.status(400).json({ detail: 'User with this email already exists' });
     }
@@ -571,6 +572,51 @@ router.put('/:userId', authenticate, validate(schemas.employeeUpdate), async (re
     res.json(updatedEmployee);
   } catch (error) {
     console.error('Update employee error:', error);
+    res.status(500).json({ detail: 'Internal server error' });
+  }
+});
+
+/**
+ * PUT /api/employees/:userId/email
+ * Change an employee's email (admin only). Email is the login id and the key
+ * most records use to point at a person (employee_email, manager_email,
+ * approver lists...), so every stored copy is rewritten in one transaction.
+ * The audit log keeps the old address as history. The person signs in with
+ * the new address; an admin changing their own gets a fresh token back.
+ */
+router.put('/:userId/email', authenticate, requireRole([UserRole.ADMIN]), validate(schemas.emailUpdate), async (req, res) => {
+  try {
+    const db = getDB();
+    const employee = await resolveEmployeeRef(db, req.params.userId);
+    if (!employee) {
+      return res.status(404).json({ detail: 'Employee not found' });
+    }
+    const oldEmail = employee.email;
+    const newEmail = req.validatedBody.email;
+    if (newEmail === oldEmail) {
+      return res.status(400).json({ detail: 'That is already this employee\'s email' });
+    }
+
+    // Logins are matched exactly, so block any spelling of an address already in use
+    const candidates = [...new Set([newEmail, newEmail.toLowerCase()])];
+    for (const coll of ['users', 'employees']) {
+      const clash = await db.collection(coll).findOne({ email: { $in: candidates } }, { projection: { email: 1 } });
+      if (clash && clash.email !== oldEmail) {
+        return res.status(409).json({ detail: 'Another account already uses this email' });
+      }
+    }
+
+    const updated = await db.replaceStringValue(oldEmail, newEmail, { exclude: ['audit_logs'] });
+    console.log(`[employees] email ${oldEmail} -> ${newEmail} by ${req.user.email}:`, updated);
+
+    const updatedEmployee = await db.collection('employees').findOne({ email: newEmail }, { projection: { _id: 0 } });
+    const body = { employee: updatedEmployee, updated_records: updated };
+    if (req.user.email === oldEmail) {
+      body.access_token = createAccessToken(newEmail);
+    }
+    res.json(body);
+  } catch (error) {
+    console.error('Update employee email error:', error);
     res.status(500).json({ detail: 'Internal server error' });
   }
 });

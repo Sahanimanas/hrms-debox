@@ -19,6 +19,28 @@ export const unmetPasswordRules = (password) => {
   return unmet;
 };
 
+/**
+ * Random password that meets every rule above: `length` characters with at
+ * least one upper, lower, digit and symbol. Look-alike characters (O 0 l 1 I)
+ * are left out so it can be read out or typed from a note.
+ */
+export const generatePassword = (length = 14) => {
+  const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%&*?'];
+  const all = sets.join('');
+  const rand = (n) => {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    return buf[0] % n;
+  };
+  const chars = sets.map((s) => s[rand(s.length)]);
+  while (chars.length < length) chars.push(all[rand(all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = rand(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+};
+
 /** "Password must have: at least 8 characters, one number (0–9)", or null. */
 export const passwordPolicyMessage = (password) => {
   const unmet = unmetPasswordRules(password);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Plus, User, Mail, Phone, Briefcase, Pencil, Search, Calendar, History, Download, KeyRound,
-  List, LayoutGrid, SlidersHorizontal, Ellipsis, X,
+  List, LayoutGrid, SlidersHorizontal, Ellipsis, X, Eye, EyeOff, Wand2, Copy,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,13 +16,14 @@ import PageHeader, { PageShell } from '@/modules/platform/components/PageHeader'
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { getAuth } from '@/lib/auth';
+import { getAuth, setAuth } from '@/lib/auth';
 import { format } from 'date-fns';
 import { exportCsv } from '@/lib/exportCsv';
 import PhoneInput from '@/components/PhoneInput';
 import { phoneError } from '@/lib/phone';
 import PasswordRules from '@/components/PasswordRules';
-import { passwordPolicyMessage } from '@/lib/password';
+import { passwordPolicyMessage, generatePassword } from '@/lib/password';
+import { emailError, nameError, dateError, amountError, firstError } from '@/lib/validation';
 import { apiErrorMessage } from '@/lib/apiError';
 import EmployeeLifecycleDialog from '@/modules/lifecycle/components/EmployeeLifecycleDialog';
 import {
@@ -82,6 +83,7 @@ const EmployeesPage = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { user } = getAuth();
   const [departments, setDepartments] = useState([]);
   const [managers, setManagers] = useState([]);
@@ -158,14 +160,51 @@ const EmployeesPage = () => {
     }
   };
 
+  const addErrors = {
+    full_name: nameError(employeeForm.full_name, { label: 'Full name' }),
+    email: emailError(employeeForm.email),
+    phone: phoneError(employeeForm.phone, { required: true }),
+    joining_date: dateError(employeeForm.joining_date, { required: true, label: 'Joining date' }),
+    department: employeeForm.department ? null : 'Please select a department',
+    date_of_birth: dateError(employeeForm.date_of_birth, { label: 'Date of birth', notFuture: true, minAgeYears: 14 }),
+    password: passwordPolicyMessage(employeeForm.password),
+  };
+
+  const editErrors = selectedEmployee ? {
+    full_name: nameError(selectedEmployee.full_name, { label: 'Full name' }),
+    email: emailError(selectedEmployee.email),
+    joining_date: dateError(selectedEmployee.joining_date, { required: true, label: 'Joining date' }),
+    designation: String(selectedEmployee.designation ?? '').trim() ? null : 'Designation is required',
+    phone: phoneError(selectedEmployee.phone, { required: true }),
+    monthly_salary: amountError(selectedEmployee.monthly_salary, { label: 'Monthly salary' }),
+  } : {};
+
+  // Shown under a field once the form has been submitted
+  const fieldError = (errors, key) => (submitAttempted && errors[key]
+    ? <p className="text-xs text-danger-fg mt-1" role="alert">{errors[key]}</p>
+    : null);
+  const invalidCls = (errors, key) => (submitAttempted && errors[key] ? 'border-danger-solid' : '');
+
+  const handleGeneratePassword = () => {
+    setEmployeeForm({ ...employeeForm, password: generatePassword() });
+    setShowPassword(true);
+  };
+
+  const handleCopyPassword = async () => {
+    try {
+      await navigator.clipboard.writeText(employeeForm.password);
+      toast.success('Password copied');
+    } catch {
+      toast.error('Could not copy — select the password and copy it manually');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const phoneProblem = phoneError(employeeForm.phone, { required: true });
-    const passwordProblem = passwordPolicyMessage(employeeForm.password);
-    const departmentProblem = employeeForm.department ? null : 'Please select a department';
-    if (phoneProblem || passwordProblem || departmentProblem) {
+    const problem = firstError(addErrors);
+    if (problem) {
       setSubmitAttempted(true);
-      toast.error(departmentProblem || phoneProblem || passwordProblem);
+      toast.error(problem);
       return;
     }
     setSubmitting(true);
@@ -173,6 +212,8 @@ const EmployeesPage = () => {
     try {
       await api.post('/employees', {
         ...employeeForm,
+        email: employeeForm.email.trim(),
+        full_name: employeeForm.full_name.trim(),
         role: 'employee', // Default role
         designation: 'Employee', // Default designation
         organization_id: (employeeForm.organization_id && employeeForm.organization_id !== 'none') ? employeeForm.organization_id : null,
@@ -184,6 +225,7 @@ const EmployeesPage = () => {
       toast.success('Employee added successfully!');
       setDialogOpen(false);
       setSubmitAttempted(false);
+      setShowPassword(false);
       setEmployeeForm({
         email: '',
         password: '',
@@ -207,6 +249,7 @@ const EmployeesPage = () => {
   const handleEdit = (employee) => {
     setSelectedEmployee({
       ...employee,
+      original_email: employee.email,
       joining_date: employee.joining_date
         ? new Date(employee.joining_date).toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0]
@@ -217,25 +260,33 @@ const EmployeesPage = () => {
 
   const handleUpdateEmployee = async (e) => {
     e.preventDefault();
-    const phoneProblem = phoneError(selectedEmployee.phone, { required: true });
-    if (phoneProblem) {
+    const problem = firstError(editErrors);
+    if (problem) {
       setSubmitAttempted(true);
-      toast.error(phoneProblem);
+      toast.error(problem);
       return;
     }
     setSubmitting(true);
 
     try {
-      const originalEmployee = employees.find(emp => emp.email === selectedEmployee.email);
+      const originalEmail = selectedEmployee.original_email;
+      const originalEmployee = employees.find(emp => emp.email === originalEmail);
+      const newEmail = selectedEmployee.email.trim();
 
-      // First update the employee profile
+      // Email first: it is the login id, so a clash (409) stops the save early.
       // Email is unique; employee_id can be missing or duplicated in legacy data
-      const employeeRef = encodeURIComponent(selectedEmployee.email);
+      if (newEmail !== originalEmail) {
+        const { data } = await api.put(`/employees/${encodeURIComponent(originalEmail)}/email`, { email: newEmail });
+        // Changing your own email: keep this session signed in with a token for the new address
+        if (data.access_token) setAuth(data.access_token, { ...user, email: newEmail });
+      }
+
+      const employeeRef = encodeURIComponent(newEmail);
       await api.put(`/employees/${employeeRef}`, {
         // undefined drops the key: the API rejects null/empty for these
-        full_name: selectedEmployee.full_name || undefined,
+        full_name: selectedEmployee.full_name?.trim() || undefined,
         department: selectedEmployee.department || undefined,
-        designation: selectedEmployee.designation || undefined,
+        designation: selectedEmployee.designation?.trim() || undefined,
         phone: selectedEmployee.phone,
         monthly_salary: selectedEmployee.monthly_salary || null,
         organization_id:
@@ -481,7 +532,13 @@ const EmployeesPage = () => {
           </Button>
         )}
         {isAdmin && (
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (open) { setSubmitAttempted(false); setShowPassword(false); }
+            }}
+          >
             <DialogTrigger asChild>
               <Button data-testid="add-employee-btn" variant="dark">
                 <Plus className="!size-[18px]" />
@@ -492,7 +549,7 @@ const EmployeesPage = () => {
               <DialogHeader>
                 <DialogTitle>Add New Employee</DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+              <form onSubmit={handleSubmit} noValidate className="space-y-4 mt-4">
                 <div>
                   <Label htmlFor="emp-name">Full Name *</Label>
                   <Input
@@ -502,8 +559,11 @@ const EmployeesPage = () => {
                     value={employeeForm.full_name}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, full_name: e.target.value })}
                     required
-                    className="mt-1"
+                    maxLength={100}
+                    aria-invalid={submitAttempted && !!addErrors.full_name}
+                    className={`mt-1 ${invalidCls(addErrors, 'full_name')}`}
                   />
+                  {fieldError(addErrors, 'full_name')}
                 </div>
                 <div>
                   <Label htmlFor="emp-email">Email *</Label>
@@ -511,12 +571,17 @@ const EmployeesPage = () => {
                     id="emp-email"
                     data-testid="emp-email-input"
                     type="email"
+                    autoComplete="off"
                     placeholder="john.doe@company.com"
                     value={employeeForm.email}
                     onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })}
                     required
-                    className="mt-1"
+                    maxLength={254}
+                    aria-invalid={submitAttempted && !!addErrors.email}
+                    className={`mt-1 ${invalidCls(addErrors, 'email')}`}
                   />
+                  {fieldError(addErrors, 'email')}
+                  <p className="text-xs text-ink-muted mt-1">The employee signs in with this email</p>
                 </div>
                 <div>
                   <Label htmlFor="emp-phone">Phone Number *</Label>
@@ -543,9 +608,12 @@ const EmployeesPage = () => {
                       value={employeeForm.joining_date}
                       onChange={(e) => setEmployeeForm({ ...employeeForm, joining_date: e.target.value })}
                       required
-                      className="pl-10"
+                      min="1900-01-01"
+                      max="2099-12-31"
+                      className={`pl-10 ${invalidCls(addErrors, 'joining_date')}`}
                     />
                   </div>
+                  {fieldError(addErrors, 'joining_date')}
                   <p className="text-xs text-ink-muted mt-1">
                     Used to calculate monthly leave credits (Earned Leave, Sick Leave)
                   </p>
@@ -577,7 +645,7 @@ const EmployeesPage = () => {
                     value={employeeForm.department}
                     onValueChange={(value) => setEmployeeForm({ ...employeeForm, department: value })}
                   >
-                    <SelectTrigger data-testid="emp-department-select" className="mt-1">
+                    <SelectTrigger data-testid="emp-department-select" className={`mt-1 ${invalidCls(addErrors, 'department')}`}>
                       <SelectValue placeholder="Select department" />
                     </SelectTrigger>
                     <SelectContent>
@@ -586,6 +654,7 @@ const EmployeesPage = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  {fieldError(addErrors, 'department')}
                   {departments.length === 0 && (
                     <p className="text-xs text-warning-fg mt-1">Go to Settings to add departments</p>
                   )}
@@ -619,10 +688,11 @@ const EmployeesPage = () => {
                     <Input
                       id="emp-dob"
                       type="date"
+                      min="1900-01-01"
                       max={new Date().toISOString().split('T')[0]}
                       value={employeeForm.date_of_birth}
                       onChange={(e) => setEmployeeForm({ ...employeeForm, date_of_birth: e.target.value })}
-                      className="mt-1"
+                      className={`mt-1 ${invalidCls(addErrors, 'date_of_birth')}`}
                     />
                   </div>
                   <div>
@@ -642,24 +712,63 @@ const EmployeesPage = () => {
                     </select>
                   </div>
                 </div>
+                {fieldError(addErrors, 'date_of_birth')}
                 <p className="text-xs text-ink-muted -mt-1">A probation period and an onboarding checklist start automatically.</p>
 
                 <div>
-                  <Label htmlFor="emp-password">Temporary Password *</Label>
-                  <Input
-                    id="emp-password"
-                    data-testid="emp-password-input"
-                    type="password"
-                    placeholder="Employee will use this to login"
-                    value={employeeForm.password}
-                    onChange={(e) => setEmployeeForm({ ...employeeForm, password: e.target.value })}
-                    required
-                    aria-describedby="emp-password-rules"
-                    aria-invalid={submitAttempted && !!passwordPolicyMessage(employeeForm.password)}
-                    className={`mt-1 ${submitAttempted && passwordPolicyMessage(employeeForm.password) ? 'border-danger-solid' : ''}`}
-                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="emp-password">Temporary Password *</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleGeneratePassword}
+                      className="h-7 gap-1 px-2 text-xs"
+                      data-testid="emp-generate-password-btn"
+                    >
+                      <Wand2 className="h-3.5 w-3.5" /> Generate
+                    </Button>
+                  </div>
+                  <div className="relative mt-1">
+                    <Input
+                      id="emp-password"
+                      data-testid="emp-password-input"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      placeholder="Employee will use this to login"
+                      value={employeeForm.password}
+                      onChange={(e) => setEmployeeForm({ ...employeeForm, password: e.target.value })}
+                      required
+                      aria-describedby="emp-password-rules"
+                      aria-invalid={submitAttempted && !!addErrors.password}
+                      className={`pr-20 font-mono ${invalidCls(addErrors, 'password')}`}
+                    />
+                    <div className="absolute inset-y-0 right-1 flex items-center gap-0.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setShowPassword(v => !v)}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={handleCopyPassword}
+                        disabled={!employeeForm.password}
+                        aria-label="Copy password"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
                   <PasswordRules id="emp-password-rules" password={employeeForm.password} showErrors={submitAttempted} className="mt-2" />
-                  <p className="text-xs text-ink-muted mt-2">Employee can change this after first login</p>
+                  <p className="text-xs text-ink-muted mt-2">Share it with the employee securely. They can change it after first login.</p>
                 </div>
                 <div className="flex gap-3 pt-2">
                   <Button
@@ -694,19 +803,50 @@ const EmployeesPage = () => {
           </DialogHeader>
 
           {selectedEmployee && (
-            <form onSubmit={handleUpdateEmployee} className="space-y-4 mt-4">
+            <form onSubmit={handleUpdateEmployee} noValidate className="space-y-4 mt-4">
 
               {/* Full Name */}
               <div>
-                <Label>Full Name *</Label>
+                <Label htmlFor="edit-emp-name">Full Name *</Label>
                 <Input
+                  id="edit-emp-name"
                   value={selectedEmployee.full_name || ''}
                   onChange={(e) =>
                     setSelectedEmployee({ ...selectedEmployee, full_name: e.target.value })
                   }
                   required
-                  className="mt-1"
+                  maxLength={100}
+                  aria-invalid={submitAttempted && !!editErrors.full_name}
+                  className={`mt-1 ${invalidCls(editErrors, 'full_name')}`}
                 />
+                {fieldError(editErrors, 'full_name')}
+              </div>
+
+              {/* Email (login id) */}
+              <div>
+                <Label htmlFor="edit-emp-email">Email *</Label>
+                <Input
+                  id="edit-emp-email"
+                  data-testid="edit-emp-email-input"
+                  type="email"
+                  autoComplete="off"
+                  value={selectedEmployee.email || ''}
+                  onChange={(e) =>
+                    setSelectedEmployee({ ...selectedEmployee, email: e.target.value })
+                  }
+                  disabled={user?.role !== 'admin'}
+                  required
+                  maxLength={254}
+                  aria-invalid={submitAttempted && !!editErrors.email}
+                  className={`mt-1 ${invalidCls(editErrors, 'email')}`}
+                />
+                {fieldError(editErrors, 'email')}
+                {selectedEmployee.email?.trim() !== selectedEmployee.original_email && (
+                  <p className="text-xs text-warning-fg mt-1">
+                    This is their sign-in email. After saving they must sign in with the new address;
+                    their leave, attendance and other records move with it.
+                  </p>
+                )}
               </div>
 
               {/* Joining Date */}
@@ -721,9 +861,12 @@ const EmployeesPage = () => {
                       setSelectedEmployee({ ...selectedEmployee, joining_date: e.target.value })
                     }
                     required
-                    className="pl-10"
+                    min="1900-01-01"
+                    max="2099-12-31"
+                    className={`pl-10 ${invalidCls(editErrors, 'joining_date')}`}
                   />
                 </div>
+                {fieldError(editErrors, 'joining_date')}
                 <p className="text-xs text-ink-muted mt-1">
                   Changing this will affect monthly leave credit calculations
                 </p>
@@ -786,8 +929,10 @@ const EmployeesPage = () => {
                     setSelectedEmployee({ ...selectedEmployee, designation: e.target.value })
                   }
                   required
-                  className="mt-1"
+                  maxLength={100}
+                  className={`mt-1 ${invalidCls(editErrors, 'designation')}`}
                 />
+                {fieldError(editErrors, 'designation')}
               </div>
 
               {/* Role */}
@@ -871,7 +1016,10 @@ const EmployeesPage = () => {
                 <Label>Monthly Salary (₹)</Label>
                 <Input
                   type="number"
-                  value={selectedEmployee.monthly_salary || ''}
+                  min="0"
+                  step="1"
+                  inputMode="numeric"
+                  value={selectedEmployee.monthly_salary ?? ''}
                   onChange={(e) =>
                     setSelectedEmployee({
                       ...selectedEmployee,
@@ -880,8 +1028,9 @@ const EmployeesPage = () => {
                         : null
                     })
                   }
-                  className="mt-1"
+                  className={`mt-1 ${invalidCls(editErrors, 'monthly_salary')}`}
                 />
+                {fieldError(editErrors, 'monthly_salary')}
                 <p className="text-xs text-ink-muted mt-1">
                   Required for salary slip generation
                 </p>
