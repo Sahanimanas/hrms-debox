@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import api from '@/lib/api';
+import { getAuth } from '@/lib/auth';
 import { exportCsv } from '@/lib/exportCsv';
 import { fmtTime, fmtMinutes, fmtShiftTime, REQUEST_TYPE_LABELS, WORK_MODE_LABELS, DEFAULT_TIMEZONE } from '@/lib/time';
 import RequestStatusBadge from '@/components/RequestStatusBadge';
@@ -24,6 +25,7 @@ const GRID_STYLES = {
 };
 
 const RequestsTab = () => {
+  const { user } = getAuth();
   const [status, setStatus] = useState('pending');
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +126,10 @@ const RequestsTab = () => {
                       {r.actioned_by_name && <> · {r.status} by {r.actioned_by_name}</>}
                     </p>
                   </div>
-                  {r.status === 'pending' && (
+                  {r.status === 'pending' && r.user_email === user?.email && (
+                    <p className="text-xs text-slate-500 shrink-0">Your own request: another approver must act on it</p>
+                  )}
+                  {r.status === 'pending' && r.user_email !== user?.email && (
                     <div className="flex gap-2 shrink-0">
                       <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 gap-1" onClick={() => setActing({ request: r, action: 'reject' })}>
                         <XCircle className="w-4 h-4" /> Reject

@@ -43,7 +43,7 @@ await run(async () => {
   // ------------------------------------------------------------------ setup
   let r = await post('/leaves/leave-policy', admin, POLICY);
   const policySaved = r.s === 200;
-  r = await post('/time/shifts', admin, { name: 'Mon-Fri', start_time: '09:30', end_time: '18:30', weekly_offs: [0, 6] });
+  r = await post('/time/shifts', admin, { name: 'Mon-Fri', start_time: '09:30', end_time: '18:30', weekly_offs: [0, 6], is_default: true });
   const shiftId = r.d?.id;
   r = await post('/time/shifts', admin, { name: 'Six day', start_time: '09:30', end_time: '18:30', weekly_offs: [0] });
   const sixDayShift = r.d?.id;
@@ -108,11 +108,13 @@ await run(async () => {
   check('per-occurrence leave does not deduct a balance', (await balanceOf(emp3.email)).maternity_leave === undefined || (await balanceOf(emp3.email)).maternity_leave === 182);
   r = await apply(emp3.token, 'Maternity Leave', range(addDays(base, 50), 2));
   check('second maternity occurrence in the same year rejected (max 1/year)', r.s === 400 && /per year/.test(r.d?.detail), r);
-  r = await apply(emp.token, 'Paternity Leave', range(addDays(base, 35), 16));
+  // No sandwich rule on these types, so weekly offs in the range aren't charged:
+  // 23 calendar days from a Monday = 17 working days, Mon → next Mon = 6
+  r = await apply(emp.token, 'Paternity Leave', range(addDays(base, 35), 23));
   check('paternity over 15 days rejected', r.s === 400 && /15/.test(r.d?.detail), r);
   r = await apply(emp.token, 'Paternity Leave', range(addDays(base, 35), 3));
   check('paternity of 3 days accepted', r.s === 201, r);
-  r = await apply(emp2.token, 'Bereavement Leave', range(addDays(base, 35), 6));
+  r = await apply(emp2.token, 'Bereavement Leave', range(addDays(base, 35), 8));
   check('bereavement over 5 days rejected', r.s === 400, r);
   r = await apply(emp2.token, 'Bereavement Leave', range(addDays(base, 35), 5));
   check('bereavement of 5 days accepted', r.s === 201 && r.d.days_count === 5, r);
@@ -454,8 +456,77 @@ await run(async () => {
   check('delete refunds the balance (4 → 5)', r.s === 200 && (await balanceOf(emp2.email)).casual_leave === 5, r);
   r = await apply(emp2.token, 'Unpaid Leave', [addDays(base, 91), addDays(base, 92)]);
   check('unlimited leave needs no balance', r.s === 201, r);
+  // RH is back at its quota of 2 after the January opening: adjust within the quota
+  r = await post('/admin/leave-credit/leave-balance/update/' + emp.employee_id, admin, { action_type: 'deduct', leave_type: 'restricted_holiday', days: 1, reason: 'used offline' });
   r = await post('/admin/leave-credit/leave-balance/update/' + emp.employee_id, admin, { action_type: 'add', leave_type: 'restricted_holiday', days: 1, reason: 'bonus RH' });
-  check('admin can adjust a policy-defined balance key', r.s === 200 && r.d.new_balance === 3, r.d);
+  check('admin can adjust a policy-defined balance key', r.s === 200 && r.d.new_balance === 2, r.d);
+  r = await post('/admin/leave-credit/leave-balance/update/' + emp.employee_id, admin, { action_type: 'add', leave_type: 'restricted_holiday', days: 1, reason: 'over quota' });
+  check('a balance cannot be raised above the yearly quota plus carry-forward (RH max 2)', r.s === 400 && /at most 2/.test(r.d?.detail), r.d);
   r = await post('/admin/leave-credit/leave-balance/update/' + emp.employee_id, admin, { action_type: 'add', leave_type: 'made_up_leave', days: 1 });
   check('unknown balance key still rejected', r.s === 400, r);
+
+  // ===================================================================== UAT fixes
+  section('UAT fixes: weekly offs, holidays, comp-off, balances, rejection reason');
+
+  // #7 Sandwich rule off: weekly offs (default shift is Mon–Fri) and holidays inside a range are skipped
+  const RANGE = range(base, 14); // Mon .. Sun two weeks later, Founders Day (WED2) inside
+  const nonWorking = RANGE.filter(k => weekday(k) === 0 || weekday(k) === 6 || k === WED2);
+  r = await post('/leaves/validate-application', emp.token, { leave_type: 'Sick Leave', dates: RANGE.map(iso) });
+  check('sandwich off: weekends and holidays in a range are not counted',
+    r.s === 200 && r.d.days?.days_count === RANGE.length - nonWorking.length &&
+    r.d.days.excluded_dates.map(e => e.date).join() === nonWorking.join() && r.d.warnings.some(w => w.type === 'non_working_days'), r.d?.days);
+  r = await apply(emp.token, 'Sick Leave', [SUN]);
+  check('a leave on a weekly off only is rejected', r.s === 400 && r.d?.warning_type === 'non_working_days', r);
+  await setBalance(emp3.email, { sick_leave: 6 });
+  const friToMon = [addDays(base, 102), addDays(base, 103), addDays(base, 104), addDays(base, 105)];
+  r = await apply(emp3.token, 'Sick Leave', friToMon);
+  const weekendId = r.d?.id;
+  check('stored dates and days_count skip the weekend (Fri–Mon = 2 days)',
+    r.s === 201 && r.d.days_count === 2 && r.d.dates.length === 2 &&
+    !r.d.dates.some(d => [friToMon[1], friToMon[2]].includes(new Date(d).toISOString().slice(0, 10))), r.d);
+
+  // #25 Rejection needs a reason
+  r = await act(admin, weekendId, 'reject');
+  check('reject without a reason is refused', r.s === 400 && /reason/i.test(r.d?.detail), r);
+  r = await act(admin, weekendId, 'reject', '   ');
+  check('a blank reason is refused too', r.s === 400, r);
+  r = await act(admin, weekendId, 'reject', 'Team offsite');
+  check('reject with a reason works', r.s === 200 && r.d.status === 'rejected', r);
+
+  // #8 One holiday source: seeded copies (Date-typed, no id, one per organisation) collapse into one row
+  const year = Number(today.slice(0, 4));
+  const seededDay = `${year}-10-02`;
+  await withDb(db => db.collection('holidays').insertMany([
+    { organization_id: 'org-a', name: 'Gandhi Jayanti', date: new Date(`${seededDay}T00:00:00Z`), type: 'public' },
+    { organization_id: 'org-b', name: 'Gandhi Jayanti', date: new Date(`${seededDay}T00:00:00Z`), type: 'public' }
+  ]));
+  r = await get(`/holidays?year=${year}`, emp.token);
+  const gandhi = (r.d || []).filter(h => h.name === 'Gandhi Jayanti');
+  check('the year filter finds seeded holidays, once each', r.s === 200 && gandhi.length === 1 && gandhi[0].date === seededDay && !!gandhi[0].id, gandhi);
+  r = await get('/holidays', emp.token);
+  check('the unfiltered list has no date + name duplicates', r.s === 200 && new Set(r.d.map(h => `${h.date}|${h.name}`)).size === r.d.length, r.d);
+  const stored = await withDb(db => db.collection('holidays').find({ name: 'Gandhi Jayanti' }).toArray());
+  check('the store keeps one row with a string date and an id', stored.length === 1 && stored[0].date === seededDay && !!stored[0].id, stored);
+  r = await post('/leaves/validate-application', emp.token, { leave_type: 'Sick Leave', dates: [iso(seededDay)] });
+  check('leave day count sees the repaired holiday', r.s === 200 && r.d.days?.days_count === 0 && /Gandhi Jayanti/.test(r.d.days.excluded_dates?.[0]?.reason || ''), r.d?.days);
+
+  // #2 / #3 Employees without an employee code are found by email
+  const noCode = await createUser(admin, { role: 'employee', name: 'Nia NoCode', department: 'Engineering', manager_email: mgr.email, joining_date: JOINED });
+  await withDb(db => db.collection('employees').updateOne({ email: noCode.email }, { $set: { employee_id: '' }, $unset: { id: '' } }));
+  r = await post('/comp-off/grant', admin, { employee_email: noCode.email, days: 1, work_date: addDays(today, -6), reason: 'Weekend release' });
+  check('comp-off grant works by email for an employee without a code', r.s === 200 && r.d.new_balance === 1, r.d);
+  check('the grant credits leave_balance.comp_off', (await balanceOf(noCode.email)).comp_off === 1, await balanceOf(noCode.email));
+  r = await post('/comp-off/grant', admin, { days: 1, work_date: addDays(today, -5), reason: 'No one selected' });
+  check('a grant without an employee is a clear 400 (not 422 "user_id" is required)', r.s === 400 && !/user_id/.test(r.d?.detail), r);
+  r = await post(`/admin/leave-credit/leave-balance/update/${encodeURIComponent(noCode.email)}`, admin, { action_type: 'set', leave_type: 'casual_leave', days: 6, reason: 'UAT' });
+  check('balance update by email works for an employee without a code', r.s === 200 && (await balanceOf(noCode.email)).casual_leave === 6, r.d);
+  r = await post('/admin/leave-credit/leave-balance/update/undefined', admin, { action_type: 'set', leave_type: 'casual_leave', days: 6 });
+  check('an unknown employee is still a 404', r.s === 404, r);
+
+  // #9 Credits never leave a balance above quota + carry-forward; one Comp Off type
+  await setBalance(noCode.email, { casual_leave: 15 });
+  r = await post('/admin/leave-credit/run-monthly', admin, { simulate_date: `${today.slice(0, 7)}-01`, force: true });
+  check('the monthly credit pulls an over-quota balance back to the quota (CL 15 → 6)', r.s === 200 && (await balanceOf(noCode.email)).casual_leave === 6, await balanceOf(noCode.email));
+  r = await post('/leaves/leave-policy', admin, { ...POLICY, policies: [...POLICY.policies, { leave_type: 'Comp Off', annual_quota: 0, credit_type: 'annually' }, { leave_type: 'CompOff', annual_quota: 0, credit_type: 'annually' }] });
+  check('"Comp Off" and "CompOff" are one leave type', r.s === 422 && /listed twice/.test(r.d?.detail), r.d);
 });

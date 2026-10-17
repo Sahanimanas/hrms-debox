@@ -5,6 +5,19 @@ const { authenticate } = require('../middleware/auth');
 const { requireRole, validate } = require('../middleware/roleCheck');
 const { schemas, UserRole } = require('../models/schemas');
 const { generateUUID, toISOString } = require('../utils/helpers');
+const { orgNameKey } = require('../services/employeeIdentity');
+
+/**
+ * Another organization already using this name (trimmed, case-insensitive)?
+ * Rows created before name_key existed are compared by name too.
+ */
+async function findNameClash(db, name, exceptId = null) {
+  const key = orgNameKey(name);
+  const orgs = await db.collection('organizations').find({}, { projection: { _id: 0, id: 1, name: 1 } }).toArray();
+  return orgs.find(o => o.id !== exceptId && orgNameKey(o.name) === key) || null;
+}
+
+const nameTaken = (name) => ({ detail: `An organization named "${name}" already exists` });
 
 /**
  * POST /api/organizations
@@ -15,16 +28,26 @@ router.post('/', authenticate, requireRole([UserRole.ADMIN]), validate(schemas.o
     const db = getDB();
     const orgData = req.validatedBody;
 
+    const clash = await findNameClash(db, orgData.name);
+    if (clash) return res.status(409).json(nameTaken(clash.name));
+
     const orgDoc = {
       id: generateUUID(),
       name: orgData.name,
+      name_key: orgNameKey(orgData.name),
       logo_url: orgData.logo_url || null,
       description: orgData.description || null,
       created_at: toISOString(new Date()),
       created_by: req.user.email
     };
 
-    await db.collection('organizations').insertOne(orgDoc);
+    try {
+      await db.collection('organizations').insertOne(orgDoc);
+    } catch (error) {
+      // Unique name_key index: a concurrent create with the same name
+      if (error.code === 11000) return res.status(409).json(nameTaken(orgData.name));
+      throw error;
+    }
 
     delete orgDoc._id;
 
@@ -85,15 +108,28 @@ router.put('/:orgId', authenticate, requireRole([UserRole.ADMIN]), validate(sche
 
     // Build update
     const updateDict = {};
-    if (orgData.name !== undefined) updateDict.name = orgData.name;
+    if (orgData.name !== undefined) {
+      // Only a real rename is checked, so a legacy duplicate can still be edited
+      if (orgNameKey(orgData.name) !== orgNameKey(org.name)) {
+        const clash = await findNameClash(db, orgData.name, orgId);
+        if (clash) return res.status(409).json(nameTaken(clash.name));
+        updateDict.name_key = orgNameKey(orgData.name);
+      }
+      updateDict.name = orgData.name;
+    }
     if (orgData.logo_url !== undefined) updateDict.logo_url = orgData.logo_url;
     if (orgData.description !== undefined) updateDict.description = orgData.description;
 
     if (Object.keys(updateDict).length > 0) {
-      await db.collection('organizations').updateOne(
-        { id: orgId },
-        { $set: updateDict }
-      );
+      try {
+        await db.collection('organizations').updateOne(
+          { id: orgId },
+          { $set: updateDict }
+        );
+      } catch (error) {
+        if (error.code === 11000) return res.status(409).json(nameTaken(orgData.name));
+        throw error;
+      }
 
       // Update organization_name in all employees
       if (updateDict.name) {

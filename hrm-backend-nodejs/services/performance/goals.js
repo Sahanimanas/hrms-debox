@@ -108,6 +108,16 @@ const computeProgress = (goal) => {
   return round2(Number(goal.manual_progress) || 0);
 };
 
+/**
+ * Status follows progress: 100% is done, 0% is not started, anything between is
+ * on track. at_risk / behind are judgement calls and stay while under 100%.
+ */
+const statusForProgress = (progress, status) => {
+  if (progress >= 100) return 'done';
+  if (status === 'at_risk' || status === 'behind') return status;
+  return progress > 0 ? 'on_track' : 'not_started';
+};
+
 const normalizeKeyResults = (list, previous = []) => (list || []).map(kr => {
   const prev = previous.find(p => p.id && p.id === kr.id);
   const start = kr.start_value ?? 0;
@@ -132,7 +142,7 @@ const getCycle = async (db, id) => {
 const getGoal = async (db, id) => {
   const goal = await db.collection('goals').findOne({ id }, { projection: { _id: 0 } });
   if (!goal) fail(404, 'Goal not found');
-  return goal;
+  return { ...goal, status: statusForProgress(goal.progress || 0, goal.status) };
 };
 
 /** Can the caller see this goal? */
@@ -309,7 +319,8 @@ router.get('/goals', h(async (req, res) => {
   }
   const goals = await db.collection('goals').find(filter, { projection: { _id: 0 } })
     .sort({ employee_name: 1, created_at: 1 }).toArray();
-  res.json(goals);
+  // Goals saved before status followed progress are shown consistently too
+  res.json(goals.map(g => ({ ...g, status: statusForProgress(g.progress || 0, g.status) })));
 }));
 
 /**
@@ -416,6 +427,7 @@ router.post('/goals', validate(goalCreate), h(async (req, res) => {
     updated_at: now()
   };
   goal.progress = computeProgress(goal);
+  goal.status = statusForProgress(goal.progress, goal.status);
   await db.collection('goals').insertOne(goal);
 
   if (assignedBy) {
@@ -457,6 +469,7 @@ router.put('/goals/:id', validate(goalUpdate), h(async (req, res) => {
   }
   const merged = { ...goal, ...updates };
   updates.progress = computeProgress(merged);
+  updates.status = statusForProgress(updates.progress, merged.status);
 
   await db.collection('goals').updateOne(
     { id: goal.id },
@@ -594,11 +607,7 @@ router.post('/goals/:id/check-ins', validate(checkInSchema), h(async (req, res) 
   }
   const merged = { ...goal, key_results: keyResults, manual_progress: data.progress ?? goal.manual_progress };
   const progress = computeProgress(merged);
-  let status = data.status || goal.status;
-  if (!data.status) {
-    if (progress >= 100) status = 'done';
-    else if (goal.status === 'not_started' && progress > 0) status = 'on_track';
-  }
+  const status = statusForProgress(progress, data.status || goal.status);
   const checkIn = {
     id: generateUUID(),
     at: now(),

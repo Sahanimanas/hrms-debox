@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { format } from 'date-fns';
+import { isCompOffKey } from '@/modules/leave/lib';
 
 const LeaveBalancePage = () => {
   const [employees, setEmployees] = useState([]);
@@ -279,6 +280,17 @@ const LeaveBalancePage = () => {
   // Check if leave type is comp-off
   const isCompOffType = (key) => {
     return key.toLowerCase().includes('comp');
+  };
+
+  // Balance entries with a single Comp Off card: stray "compoff" / "comp off" keys
+  // collapse into comp_off (the key comp-off grants credit)
+  const balanceEntries = (leaveBalance) => {
+    const entries = Object.entries(leaveBalance).filter(([key]) => !isCompOffKey(key) || key === 'comp_off');
+    if (!('comp_off' in leaveBalance)) {
+      const variant = Object.entries(leaveBalance).find(([key]) => isCompOffKey(key));
+      if (variant) entries.push(['comp_off', variant[1]]);
+    }
+    return entries;
   };
 
   // Calendar functions
@@ -657,7 +669,7 @@ const LeaveBalancePage = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {filteredEmployees.map((employee) => {
               const leaveBalance = employee.leave_balance || {};
-              const leaveEntries = Object.entries(leaveBalance);
+              const leaveEntries = balanceEntries(leaveBalance);
 
               return (
                 <Card key={employee.id} className="border-slate-100 shadow-sm">

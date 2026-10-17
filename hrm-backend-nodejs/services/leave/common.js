@@ -80,6 +80,39 @@ function effectiveBalance(employee, policyItem, key) {
   return 0;
 }
 
+/**
+ * Most a balance may hold: the type's yearly entitlement plus whatever was
+ * carried into `year` by the year-end close. null = no cap (comp-off,
+ * unlimited, per-occurrence and types without a quota).
+ */
+function balanceCap(employee, policyItem, key, year = Number(todayKey().slice(0, 4))) {
+  if (!policyItem || !tracksBalance(policyItem) || key === 'comp_off') return null;
+  const quota = Number(policyItem.annual_quota) > 0
+    ? Number(policyItem.annual_quota)
+    : (policyItem.credit_type === 'monthly' ? (Number(policyItem.monthly_credit) || 0) * 12 : 0);
+  if (!(quota > 0)) return null;
+  const cf = employee?.leave_carry_forward;
+  const carried = cf && cf.year === year ? Number(cf.balances?.[key]) || 0 : 0;
+  return round1(quota + carried);
+}
+
+/**
+ * Opening balance for a new employee record from the policy: annual and
+ * per-year types start at their quota, monthly types at their first month's
+ * credit, per-occurrence types at their entitlement — never above the quota.
+ */
+function openingBalance(policyDoc) {
+  const balance = { comp_off: 0, unpaid_leave: 0 };
+  for (const p of policyDoc?.policies || []) {
+    if (!p?.leave_type || p.is_unlimited) continue;
+    const key = normalizeLeaveType(p.leave_type);
+    if (key === 'comp_off') continue;
+    const quota = Number(p.annual_quota) || 0;
+    balance[key] = p.credit_type === 'monthly' ? round1(Math.min(Number(p.monthly_credit) || 0, quota || Infinity)) : quota;
+  }
+  return balance;
+}
+
 /** Initialise a missing balance key (see effectiveBalance) so later $inc updates start from the quota. */
 async function ensureBalanceKey(db, employee, policyItem, key) {
   if (!employee?.email) return;
@@ -243,21 +276,73 @@ const holidayKey = (h) => {
   return isNaN(d) ? null : dateKey(d);
 };
 
+const holidayIdentity = (key, h) => `${key}|${String(h.name || '').trim().toLowerCase()}`;
+
+/**
+ * Sort holiday rows by calendar day and split them into the one row kept per
+ * date + name and the duplicates of it. Rows created through the app (with an
+ * `id`) win over seeded copies (one per organisation, Date-typed, no `id`).
+ */
+function splitHolidayRows(rows) {
+  const ordered = rows
+    .map(h => ({ h, key: holidayKey(h) }))
+    .filter(r => r.key)
+    .sort((a, b) => a.key.localeCompare(b.key) || (a.h.id ? 0 : 1) - (b.h.id ? 0 : 1));
+  const seen = new Map();
+  const duplicates = [];
+  for (const r of ordered) {
+    const ident = holidayIdentity(r.key, r.h);
+    if (seen.has(ident)) duplicates.push(r);
+    else seen.set(ident, r);
+  }
+  return { kept: [...seen.values()], duplicates };
+}
+
+const cleanHoliday = ({ h, key }) => {
+  const { _id, ...rest } = h;
+  return { ...rest, id: h.id || (_id != null ? String(_id) : null), date: key };
+};
+
+/**
+ * The holiday calendar — the single source for /api/holidays, leave day counts
+ * and the team calendar. One row per date + name, `date` as 'YYYY-MM-DD',
+ * optionally limited to fromKey..toKey (inclusive).
+ */
+async function listHolidays(db, { fromKey = null, toKey = null } = {}) {
+  const rows = await db.collection('holidays').find({}).toArray();
+  return splitHolidayRows(rows).kept
+    .filter(r => (!fromKey || r.key >= fromKey) && (!toKey || r.key <= toKey))
+    .map(cleanHoliday);
+}
+
+/**
+ * Bring stored holidays to the shape the app writes: 'YYYY-MM-DD' dates, a
+ * uuid `id` (so edit / delete work), and no duplicate rows for the same date
+ * and name (older seed data stored one copy per organisation with Date values,
+ * which the year filter missed). Safe to run repeatedly; returns listHolidays().
+ */
+async function repairHolidays(db) {
+  const { generateUUID } = require('../../utils/helpers');
+  const rows = await db.collection('holidays').find({}).toArray();
+  const { kept, duplicates } = splitHolidayRows(rows);
+  for (const r of kept) {
+    const set = {};
+    if (!r.h.id) set.id = generateUUID();
+    if (r.h.date !== r.key) set.date = r.key;
+    if (Object.keys(set).length) {
+      await db.collection('holidays').updateOne({ _id: r.h._id }, { $set: set });
+      Object.assign(r.h, set);
+    }
+  }
+  for (const r of duplicates) await db.collection('holidays').deleteOne({ _id: r.h._id });
+  return kept.map(cleanHoliday);
+}
+
 /** Holidays between two keys (inclusive) as { key: { name, type } }. */
 async function getHolidayMap(db, fromKey, toKey) {
-  const from = `${fromKey}`;
-  const to = `${toKey}T23:59:59.999Z`;
-  const rows = await db.collection('holidays').find({
-    $or: [
-      { date: { $gte: from, $lte: to } },
-      // Date-typed values (older data): widen by a day each side, filtered by calendar key below
-      { date: { $gte: new Date(keyToDate(fromKey).getTime() - DAY_MS), $lte: new Date(Date.parse(`${toKey}T23:59:59.999Z`) + DAY_MS) } }
-    ]
-  }, { projection: { _id: 0 } }).toArray();
   const map = {};
-  for (const h of rows) {
-    const k = holidayKey(h);
-    if (k && k >= fromKey && k <= toKey) map[k] = { name: h.name, type: h.type || 'public' };
+  for (const h of await listHolidays(db, { fromKey, toKey })) {
+    map[h.date] = { name: h.name, type: h.type || 'public' };
   }
   return map;
 }
@@ -283,6 +368,8 @@ module.exports = {
   tracksBalance,
   resetsYearly,
   effectiveBalance,
+  balanceCap,
+  openingBalance,
   ensureBalanceKey,
   STANDARD_EXTRA_TYPES,
   leaveCategory,
@@ -291,6 +378,9 @@ module.exports = {
   resolveManager,
   listAdmins,
   getWeeklyOffs,
+  holidayKey,
+  listHolidays,
+  repairHolidays,
   getHolidayMap,
   isPublicHoliday
 };

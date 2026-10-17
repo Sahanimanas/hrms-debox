@@ -15,7 +15,8 @@ const { UserRole } = require('../models/schemas');
 const { creditMonthlyLeaves, LEAVE_CREDIT_RULES, initializeLeaveBalance } = require('../cron/monthlyLeaveCredit');
 const { normalizeLeaveType } = require('../utils/helpers');
 const { createNotification, NotificationType } = require('../services/notificationService');
-const { getPolicyDoc } = require('../services/leave/common');
+const { getPolicyDoc, findPolicyItem, balanceCap } = require('../services/leave/common');
+const { findEmployeeByUid, uidOf } = require('../services/lifecycle/common');
 
 const BASE_LEAVE_KEYS = ['casual_leave', 'sick_leave', 'earned_leave', 'comp_off', 'unpaid_leave'];
 
@@ -83,6 +84,7 @@ router.post('/leave-balance/bulk-update', authenticate, requireRole([UserRole.AD
 
     // Get all employees
     const employees = await db.collection('employees').find({}).toArray();
+    const policyItem = findPolicyItem(await getPolicyDoc(db), leaveKey);
     const results = [];
     let updatedCount = 0;
     let errorCount = 0;
@@ -104,12 +106,14 @@ router.post('/leave-balance/bulk-update', authenticate, requireRole([UserRole.AD
             break;
         }
 
-        // Round to 1 decimal
+        // Round to 1 decimal, never above the yearly quota plus carry-forward
         newBalance = Math.round(newBalance * 10) / 10;
+        const cap = balanceCap(employee, policyItem, leaveKey);
+        if (cap != null && newBalance > cap) newBalance = cap;
 
-        // Update employee
+        // Update employee (by _id: seeded employees may have no uuid `id`, and { id: undefined } would hit the wrong one)
         await db.collection('employees').updateOne(
-          { id: employee.id },
+          { _id: employee._id },
           { $set: { [`leave_balance.${leaveKey}`]: newBalance } }
         );
 
@@ -190,11 +194,8 @@ router.post('/leave-balance/update/:employeeId', authenticate, requireRole([User
       return res.status(400).json({ detail: 'Days must be a non-negative number' });
     }
 
-    // Find employee
-    const employee = await db.collection('employees').findOne(
-      { employee_id: employeeId },
-      { projection: { _id: 0 } }
-    );
+    // Find employee: email, employee code, legacy code or uuid (seeded employees may have no employee_id)
+    const employee = await findEmployeeByUid(db, String(employeeId || '').trim());
 
     if (!employee) {
       return res.status(404).json({ detail: 'Employee not found' });
@@ -223,16 +224,24 @@ router.post('/leave-balance/update/:employeeId', authenticate, requireRole([User
     // Round to 1 decimal
     newBalance = Math.round(newBalance * 10) / 10;
 
+    // A balance can't exceed the yearly quota plus days carried forward into this year
+    const cap = balanceCap(employee, findPolicyItem(await getPolicyDoc(db), leaveKey), leaveKey);
+    if (cap != null && newBalance > cap) {
+      return res.status(400).json({
+        detail: `${leaveKey.replace(/_/g, ' ')} balance can be at most ${cap} days (yearly quota plus carry-forward). Requested: ${newBalance}`
+      });
+    }
+
     // Update employee
     await db.collection('employees').updateOne(
-      { employee_id: employeeId },
+      { email: employee.email },
       { $set: { [`leave_balance.${leaveKey}`]: newBalance } }
     );
 
     // Log the adjustment
     await db.collection('leave_adjustment_logs').insertOne({
       type: 'individual_update',
-      employee_id: employeeId,
+      employee_id: uidOf(employee),
       employee_email: employee.email,
       action_type,
       leave_type: leaveKey,
@@ -281,14 +290,14 @@ router.post('/leave-balance/update/:employeeId', authenticate, requireRole([User
 
     // Get updated leave balance
     const updatedEmployee = await db.collection('employees').findOne(
-      { employee_id: employeeId },
+      { email: employee.email },
       { projection: { leave_balance: 1 } }
     );
 
     res.json({
       status: 'success',
       message: `Successfully ${action_type} ${days} ${leaveKey} for ${employee.full_name}`,
-      employee_id: employeeId,
+      employee_id: uidOf(employee),
       leave_type: leaveKey,
       previous_balance: currentBalance,
       new_balance: newBalance,
@@ -365,7 +374,7 @@ router.post('/initialize-all', authenticate, requireRole([UserRole.ADMIN]), asyn
         balance.comp_off = employee.leave_balance?.comp_off || 0;
 
         await db.collection('employees').updateOne(
-          { id: employee.id },
+          { _id: employee._id },
           { $set: { leave_balance: balance, last_leave_credit_date: effectiveDate } }
         );
 
@@ -396,7 +405,7 @@ router.post('/initialize-all', authenticate, requireRole([UserRole.ADMIN]), asyn
       balance.comp_off = employee.leave_balance?.comp_off || 0;  // Preserve existing comp_off
 
       await db.collection('employees').updateOne(
-        { id: employee.id },
+        { _id: employee._id },
         {
           $set: {
             leave_balance: balance,

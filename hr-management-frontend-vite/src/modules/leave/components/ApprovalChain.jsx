@@ -18,10 +18,14 @@ const approverLabel = (step) => {
 
 /**
  * Multi-level approval status for a leave (LV-4).
- * `chain` is leave.approval_chain from the API.
+ * `chain` is leave.approval_chain from the API. Skipped levels (no reporting
+ * manager, approver is the applicant …) are left out — the leave goes straight
+ * to the next approver — unless `showSkipped` is set.
  */
-const ApprovalChain = ({ chain, compact = false }) => {
-  if (!Array.isArray(chain) || chain.length === 0) return null;
+const ApprovalChain = ({ chain: fullChain, compact = false, showSkipped = false }) => {
+  if (!Array.isArray(fullChain) || fullChain.length === 0) return null;
+  const visible = showSkipped ? fullChain : fullChain.filter((s) => s.status !== 'skipped');
+  const chain = visible.length ? visible : fullChain;
   const currentLevel = chain.find((s) => s.status === 'pending')?.level;
 
   return (

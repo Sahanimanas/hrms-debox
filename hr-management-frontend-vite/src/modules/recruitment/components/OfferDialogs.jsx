@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Copy, KeyRound, CheckCircle2 } from 'lucide-react';
+import { Copy, KeyRound, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -13,6 +13,16 @@ const addDays = (n) => {
   const d = new Date();
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
+};
+
+/** "₹20,00,000–₹30,00,000" when the CTC is outside the job's salary band, else null. */
+const outOfBandLabel = (ctc, job) => {
+  const min = job?.salary_min ?? null;
+  const max = job?.salary_max ?? null;
+  const n = Number(ctc);
+  if (!(n > 0) || ((min == null || n >= min) && (max == null || n <= max))) return null;
+  if (min != null && max != null) return `${fmtInr(min)}–${fmtInr(max)}`;
+  return min != null ? `at least ${fmtInr(min)}` : `at most ${fmtInr(max)}`;
 };
 
 /** Create (candidate given) or edit a draft offer. */
@@ -32,12 +42,15 @@ export function OfferDialog({ open, candidate, job, offer, onClose, onSaved }) {
   }, [open, offer, job, candidate]);
 
   const setInput = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+  const bandWarning = outOfBandLabel(form.ctc, job);
 
   const save = async () => {
     if (!form.designation?.trim() || !form.department?.trim()) return toast.error('Designation and department are required');
     if (!(Number(form.ctc) > 0)) return toast.error('Enter the annual CTC');
     if (!form.joining_date || !form.expiry_date) return toast.error('Pick the joining and expiry dates');
     if (form.expiry_date < todayIso()) return toast.error('Expiry date cannot be in the past');
+    if (bandWarning && Number(form.ctc) !== Number(offer?.ctc)
+      && !window.confirm(`This CTC is outside the job's salary band (${bandWarning}). The offer will need an admin's approval before it can be sent. Save anyway?`)) return;
     const body = { ...form, designation: form.designation.trim(), department: form.department.trim(), ctc: Number(form.ctc), notes: (form.notes || '').trim() };
     setSaving(true);
     try {
@@ -65,6 +78,12 @@ export function OfferDialog({ open, candidate, job, offer, onClose, onSaved }) {
           <Field id="of-ctc" label="Annual CTC (₹) *" hint={Number(form.ctc) > 0 ? `${fmtInr(form.ctc)} · ~${fmtInr(Math.round(form.ctc / 12))}/month` : undefined} className="sm:col-span-2">
             <Input id="of-ctc" type="number" min={1} value={form.ctc ?? ''} onChange={setInput('ctc')} />
           </Field>
+          {bandWarning && (
+            <p role="alert" className="sm:col-span-2 -mt-1 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              Outside the job's salary band ({bandWarning}). Another admin must approve the offer before it can be sent.
+            </p>
+          )}
           <Field id="of-join" label="Joining date *"><Input id="of-join" type="date" min={todayIso()} value={form.joining_date || ''} onChange={setInput('joining_date')} /></Field>
           <Field id="of-exp" label="Offer valid until *"><Input id="of-exp" type="date" min={todayIso()} value={form.expiry_date || ''} onChange={setInput('expiry_date')} /></Field>
           <Field id="of-notes" label="Additional terms / notes" className="sm:col-span-2" hint="Printed on the offer letter.">

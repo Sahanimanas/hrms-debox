@@ -17,6 +17,7 @@ import { useEmployees } from '../hooks';
 import { PageShell, PageHeader, SectionCard, Loading, Empty, ErrorState, ProgressBar, StatTile, NativeSelect, Avatar } from '../components/ui';
 import ChecklistTasks from '../components/ChecklistTasks';
 import LifecycleSettingsCard from '../components/LifecycleSettingsCard';
+import { employeeLabel } from '@/lib/employeeLabel';
 
 const OWNERS = ['hr', 'manager', 'employee', 'it'];
 const EMPTY_TEMPLATE = { name: '', description: '', is_default: false, tasks: [{ title: '', owner: 'hr', due_offset_days: 0, description: '' }] };
@@ -356,7 +357,7 @@ const OnboardingAdminPage = () => {
               <Label>Employee</Label>
               <NativeSelect value={startForm.employee_uid} onChange={(v) => setStartForm({ ...startForm, employee_uid: v })}>
                 <option value="">Select employee…</option>
-                {employees.filter(e => e.employment_status !== 'exited').map(e => <option key={e.id} value={e.id}>{e.full_name} ({e.id})</option>)}
+                {employees.filter(e => e.employment_status !== 'exited').map(e => <option key={e.id} value={e.id}>{employeeLabel(e.full_name, e.employee_id)}</option>)}
               </NativeSelect>
             </div>
             <div className="space-y-1.5">

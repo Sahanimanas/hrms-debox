@@ -64,6 +64,18 @@ const ShiftsPage = () => {
   const shiftById = useMemo(() => Object.fromEntries(shifts.map(s => [s.id, s])), [shifts]);
   const defaultShift = shifts.find(s => s.is_default);
 
+  const unassignedCount = roster.filter(e => !e.shift_id || !shiftById[e.shift_id]).length;
+  const generalLabel = fallback ? `built-in ${fallback.name} shift (${fmtShiftTime(fallback.start_time)} – ${fmtShiftTime(fallback.end_time)})` : 'built-in General shift';
+
+  // The default shift silently applies to everyone without an assigned shift, so ask first
+  const confirmDefaultChange = (name, makingDefault) => window.confirm(makingDefault
+    ? `Make "${name}" the default shift?
+
+It applies to everyone without an assigned shift (${unassignedCount} employee${unassignedCount === 1 ? '' : 's'} right now): their working hours, late marks and half-day rules will follow this shift.`
+    : `Stop using "${name}" as the default shift?
+
+Employees without an assigned shift (${unassignedCount}) go back to the ${generalLabel}.`);
+
   const filteredRoster = roster.filter(e => {
     const q = search.trim().toLowerCase();
     if (!q) return true;
@@ -72,7 +84,7 @@ const ShiftsPage = () => {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ ...EMPTY_FORM, is_default: shifts.length === 0 });
+    setForm({ ...EMPTY_FORM });
     setDialogOpen(true);
   };
 
@@ -111,8 +123,9 @@ const ShiftsPage = () => {
       full_day_minutes: Math.round(Number(form.full_day_hours) * 60) || 0,
       weekly_offs: form.weekly_offs,
     };
-    // Unsetting the default is done by making another shift default
-    if (!editing || form.is_default) payload.is_default = form.is_default;
+    payload.is_default = form.is_default;
+    const defaultChanged = editing ? form.is_default !== !!editing.is_default : form.is_default;
+    if (defaultChanged && !confirmDefaultChange(payload.name, form.is_default)) return;
 
     setSaving(true);
     try {
@@ -151,6 +164,7 @@ const ShiftsPage = () => {
   };
 
   const makeDefault = async (shift) => {
+    if (!confirmDefaultChange(shift.name, true)) return;
     try {
       await api.put(`/time/shifts/${shift.id}`, { is_default: true });
       toast.success(`${shift.name} is now the default shift`);
@@ -213,10 +227,10 @@ const ShiftsPage = () => {
           </Button>
         </div>
 
-        {shifts.length === 0 && fallback && (
+        {!defaultShift && fallback && (
           <Card className="border-amber-200 bg-amber-50 shadow-none">
             <CardContent className="p-4 text-sm text-amber-800">
-              No shifts yet. Until you create one, everyone uses a built-in <b>{fallback.name}</b> shift
+              {shifts.length === 0 ? 'No shifts yet.' : 'No default shift.'} Everyone without an assigned shift uses a built-in <b>{fallback.name}</b> shift
               ({fmtShiftTime(fallback.start_time)} – {fmtShiftTime(fallback.end_time)}, Sunday off).
             </CardContent>
           </Card>
@@ -290,7 +304,7 @@ const ShiftsPage = () => {
               <Select value={assignTo} onValueChange={setAssignTo} disabled={shifts.length === 0}>
                 <SelectTrigger className="md:w-56"><SelectValue placeholder="Choose shift" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={DEFAULT_SHIFT_VALUE}>Default shift{defaultShift ? ` (${defaultShift.name})` : ''}</SelectItem>
+                  <SelectItem value={DEFAULT_SHIFT_VALUE}>Default shift ({defaultShift?.name || fallback?.name || 'General'})</SelectItem>
                   {shifts.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -301,7 +315,7 @@ const ShiftsPage = () => {
                   { key: 'employee_id', label: 'Employee ID' },
                   { key: 'full_name', label: 'Name' },
                   { key: 'department', label: 'Department' },
-                  { label: 'Shift', value: (e) => shiftById[e.shift_id]?.name || `${defaultShift?.name || 'Default'} (default)` },
+                  { label: 'Shift', value: (e) => shiftById[e.shift_id]?.name || `${defaultShift?.name || fallback?.name || 'Default'} (default)` },
                 ])}
               >
                 <Download className="w-4 h-4" /> Export
@@ -407,15 +421,16 @@ const ShiftsPage = () => {
                 ))}
               </div>
             </div>
-            {!(editing?.is_default) && (
-              <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-900">Default shift</p>
-                  <p className="text-xs text-slate-500">Used for anyone without an assigned shift</p>
-                </div>
-                <Switch checked={form.is_default} onCheckedChange={(v) => setForm({ ...form, is_default: v })} />
+            <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3">
+              <div>
+                <p className="text-sm font-medium text-slate-900">Default shift</p>
+                <p className="text-xs text-slate-500">
+                  Used for anyone without an assigned shift
+                  {editing?.is_default && !form.is_default ? ` · they go back to the ${generalLabel}` : ''}
+                </p>
               </div>
-            )}
+              <Switch checked={form.is_default} onCheckedChange={(v) => setForm({ ...form, is_default: v })} />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>

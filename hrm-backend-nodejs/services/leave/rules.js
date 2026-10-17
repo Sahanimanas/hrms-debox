@@ -24,33 +24,39 @@ const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', '
 /**
  * Count the days a leave application uses.
  *
- * - Every selected date counts 1 (0.5 when it is a half-day application).
- * - With the policy's sandwich rule on, weekly offs (from the employee's shift)
- *   and public holidays that sit between two leave days — i.e. a gap made up
+ * - Every selected working date counts 1 (0.5 when it is a half-day application).
+ * - Sandwich rule off: selected weekly offs (from the employee's shift) and
+ *   public holidays are skipped — they are returned in `excluded_dates` and
+ *   left out of `dates`, so a 2 Nov – 11 Dec range doesn't charge Sundays.
+ * - Sandwich rule on: selected non-working days count, and weekly offs /
+ *   public holidays that sit between two leave days — i.e. a gap made up
  *   only of non-working days — are counted as leave as well.
  *
- * Returns { days_count, applied_days, sandwich_rule, sandwich_days, sandwich_dates,
- *           non_working_selected, weekly_offs, breakdown }
+ * Returns { dates, days_count, applied_days, sandwich_rule, sandwich_days, sandwich_dates,
+ *           excluded_dates, non_working_selected, weekly_offs, breakdown }
  */
 async function computeLeaveDays(db, { employee, dates, isHalfDay = false, policyItem = null }) {
-  const keys = toKeys(dates);
-  const applied = isHalfDay ? keys.length * 0.5 : keys.length;
+  const selected = toKeys(dates);
+  const perDay = isHalfDay ? 0.5 : 1;
+  const sandwichOn = !!policyItem?.sandwich_rule;
   const result = {
-    dates: keys,
-    applied_days: applied,
-    sandwich_rule: !!policyItem?.sandwich_rule,
+    dates: selected,
+    selected_dates: selected,
+    applied_days: selected.length * perDay,
+    sandwich_rule: sandwichOn,
     sandwich_days: 0,
     sandwich_dates: [],
+    excluded_dates: [],
     non_working_selected: [],
     weekly_offs: [],
     breakdown: [],
-    days_count: applied
+    days_count: selected.length * perDay
   };
-  if (!keys.length) return result;
+  if (!selected.length) return result;
 
   const offs = await getWeeklyOffs(db, employee);
   // Look a little past the ends so the UI can explain neighbouring holidays too
-  const holidays = await getHolidayMap(db, addDaysKey(keys[0], -1), addDaysKey(keys[keys.length - 1], 1));
+  const holidays = await getHolidayMap(db, addDaysKey(selected[0], -1), addDaysKey(selected[selected.length - 1], 1));
   const reasonFor = (k) => {
     if (isPublicHoliday(holidays[k])) return `Holiday — ${holidays[k].name}`;
     if (offs.includes(weekdayOfKey(k))) return `Weekly off (${WEEKDAY_NAMES[weekdayOfKey(k)]})`;
@@ -58,9 +64,18 @@ async function computeLeaveDays(db, { employee, dates, isHalfDay = false, policy
   };
 
   result.weekly_offs = offs;
-  result.non_working_selected = keys.filter(k => reasonFor(k)).map(k => ({ date: k, reason: reasonFor(k) }));
+  result.non_working_selected = selected.filter(k => reasonFor(k)).map(k => ({ date: k, reason: reasonFor(k) }));
 
-  if (policyItem?.sandwich_rule && !isHalfDay && keys.length >= 2) {
+  // Without the sandwich rule non-working days are never charged
+  let keys = selected;
+  if (!sandwichOn && result.non_working_selected.length) {
+    result.excluded_dates = result.non_working_selected;
+    keys = selected.filter(k => !reasonFor(k));
+    result.dates = keys;
+    result.applied_days = keys.length * perDay;
+  }
+
+  if (sandwichOn && !isHalfDay && keys.length >= 2) {
     for (let i = 0; i < keys.length - 1; i++) {
       const gap = [];
       for (let k = addDaysKey(keys[i], 1); k < keys[i + 1]; k = addDaysKey(k, 1)) gap.push(k);
@@ -72,7 +87,7 @@ async function computeLeaveDays(db, { employee, dates, isHalfDay = false, policy
     result.sandwich_days = result.sandwich_dates.length;
   }
 
-  result.days_count = applied + result.sandwich_days;
+  result.days_count = result.applied_days + result.sandwich_days;
   return result;
 }
 

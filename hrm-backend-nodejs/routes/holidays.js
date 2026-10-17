@@ -5,40 +5,31 @@ const { authenticate } = require('../middleware/auth');
 const { requireRole, validate } = require('../middleware/roleCheck');
 const { schemas, UserRole } = require('../models/schemas');
 const { generateUUID, toISOString } = require('../utils/helpers');
+const { dateKey, listHolidays, repairHolidays } = require('../services/leave/common');
 
 /**
  * GET /api/holidays
  * Get all holidays (accessible to all authenticated users)
+ *
+ * The one holiday list every screen uses (Holidays page, Apply Leave, Team
+ * Calendar, Dashboard): one row per date + name, dates as 'YYYY-MM-DD'.
+ * Older rows (Date-typed, no id, one copy per organisation) are repaired here.
  */
 router.get('/', authenticate, async (req, res) => {
   try {
     const db = getDB();
     const { year, month } = req.query;
 
-    let query = {};
-
-    // Filter by year
-    if (year) {
-      const yearInt = parseInt(year, 10);
-      const startDate = `${yearInt}-01-01`;
-      const endDate = `${yearInt}-12-31`;
-      query.date = { $gte: startDate, $lte: endDate };
-    }
-
-    // Filter by month (requires year)
-    if (year && month) {
-      const yearInt = parseInt(year, 10);
+    let prefix = '';
+    const yearInt = parseInt(year, 10);
+    if (year && Number.isInteger(yearInt)) {
+      prefix = String(yearInt);
+      // Filter by month (requires year)
       const monthInt = parseInt(month, 10);
-      const lastDay = new Date(yearInt, monthInt, 0).getDate();
-      const startDate = `${yearInt}-${String(monthInt).padStart(2, '0')}-01`;
-      const endDate = `${yearInt}-${String(monthInt).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-      query.date = { $gte: startDate, $lte: endDate };
+      if (month && monthInt >= 1 && monthInt <= 12) prefix += `-${String(monthInt).padStart(2, '0')}`;
     }
 
-    const holidays = await db.collection('holidays')
-      .find(query, { projection: { _id: 0 } })
-      .sort({ date: 1 })
-      .toArray();
+    const holidays = (await repairHolidays(db)).filter(h => h.date.startsWith(prefix));
 
     res.json(holidays);
   } catch (error) {
@@ -82,12 +73,11 @@ router.post('/', authenticate, requireRole([UserRole.ADMIN]), validate(schemas.h
     const holidayData = req.validatedBody;
     const user = req.user;
 
-    // Format date as YYYY-MM-DD string
-    const dateObj = new Date(holidayData.date);
-    const dateStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+    // Format date as YYYY-MM-DD string (the picked calendar day, whatever the server timezone)
+    const dateStr = dateKey(holidayData.date);
 
     // Check if holiday already exists on this date
-    const existing = await db.collection('holidays').findOne({ date: dateStr });
+    const existing = (await listHolidays(db, { fromKey: dateStr, toKey: dateStr }))[0];
     if (existing) {
       return res.status(400).json({ detail: 'A holiday already exists on this date' });
     }
@@ -138,8 +128,7 @@ router.put('/:id', authenticate, requireRole([UserRole.ADMIN]), validate(schemas
     if (updateData.description !== undefined) updates.description = updateData.description;
 
     if (updateData.date !== undefined) {
-      const dateObj = new Date(updateData.date);
-      updates.date = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+      updates.date = dateKey(updateData.date);
     }
 
     await db.collection('holidays').updateOne({ id }, { $set: updates });
@@ -308,10 +297,8 @@ router.get('/check/:date', authenticate, async (req, res) => {
     const db = getDB();
     const { date } = req.params;
 
-    const holiday = await db.collection('holidays').findOne(
-      { date },
-      { projection: { _id: 0 } }
-    );
+    const key = dateKey(date);
+    const holiday = key ? (await listHolidays(db, { fromKey: key, toKey: key }))[0] || null : null;
 
     res.json({
       is_holiday: !!holiday,
@@ -335,11 +322,7 @@ router.get('/list/upcoming', authenticate, async (req, res) => {
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-    const holidays = await db.collection('holidays')
-      .find({ date: { $gte: todayStr } }, { projection: { _id: 0 } })
-      .sort({ date: 1 })
-      .limit(parseInt(limit, 10))
-      .toArray();
+    const holidays = (await listHolidays(db, { fromKey: todayStr })).slice(0, parseInt(limit, 10) || 10);
 
     res.json(holidays);
   } catch (error) {

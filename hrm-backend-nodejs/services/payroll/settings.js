@@ -23,8 +23,8 @@ const DEFAULT_SETTINGS = {
   pay_day: 1,
   auto_draft_enabled: false,
   declaration_window_open: true,
-  proof_deadline: null, // 'YYYY-MM-DD'; until then declared amounts count for TDS
-  use_declared_until_deadline: true,
+  proof_deadline: null, // 'YYYY-MM-DD'; with use_declared_until_deadline, declared amounts count for TDS until then
+  use_declared_until_deadline: false, // off: only verified (approved) amounts reduce TDS
   tax_slabs: { '2025-26': TAX_SLABS_FY2025_26 }
 };
 

@@ -7,6 +7,7 @@ const { UserRole } = require('../models/schemas');
 const { generateUUID, toISOString } = require('../utils/helpers');
 const { sendEmailNotification } = require('../services/emailService');
 const { createNotification, NotificationType } = require('../services/notificationService');
+const { findEmployeeByUid, uidOf } = require('../services/lifecycle/common');
 
 /**
  * Helper function to update employee's comp_off balance
@@ -504,11 +505,19 @@ router.get('/records', authenticate, requireRole([UserRole.MANAGER, UserRole.ADM
 router.post('/grant', authenticate, requireRole([UserRole.MANAGER, UserRole.ADMIN]), async (req, res) => {
   try {
     const db = getDB();
-    const { user_id, days, work_date, reason } = req.body;
+    const { days, work_date, reason } = req.body;
+    // Who gets it: employee_email (preferred — every employee has one), employee_id or user_id.
+    // Seeded employees may have no employee code, and codes may be duplicated, so email wins.
+    const refs = [req.body.employee_email, req.body.employee_id, req.body.user_id]
+      .map(v => (typeof v === 'string' ? v.trim() : ''))
+      .filter(Boolean);
 
     // Validate
-    if (!user_id || !days || !work_date || !reason) {
-      return res.status(400).json({ detail: 'All fields are required' });
+    if (!refs.length) {
+      return res.status(400).json({ detail: 'Select the employee to grant comp-off to' });
+    }
+    if (!days || !work_date || !reason) {
+      return res.status(400).json({ detail: 'Work date, days and reason are required' });
     }
 
     const parsedDays = parseFloat(days);
@@ -516,24 +525,24 @@ router.post('/grant', authenticate, requireRole([UserRole.MANAGER, UserRole.ADMI
       return res.status(400).json({ detail: 'Invalid number of days' });
     }
 
-    // Get employee info by user_id (which is the users collection id)
-    const user = await db.collection('users').findOne(
-      { id: user_id },
-      { projection: { _id: 0, email: 1 } }
-    );
-
-    if (!user) {
-      return res.status(404).json({ detail: 'User not found' });
+    let employee = null;
+    for (const ref of refs) {
+      employee = await findEmployeeByUid(db, ref);
+      if (!employee) {
+        // user_id may be a users-collection id (or the employee_id stored on the user)
+        const user = await db.collection('users').findOne(
+          { $or: [{ id: ref }, { employee_id: ref }] },
+          { projection: { _id: 0, email: 1 } }
+        );
+        if (user) employee = await db.collection('employees').findOne({ email: user.email });
+      }
+      if (employee) break;
     }
-
-    const employee = await db.collection('employees').findOne(
-      { email: user.email },
-      { projection: { _id: 0 } }
-    );
 
     if (!employee) {
       return res.status(404).json({ detail: 'Employee not found' });
     }
+    delete employee._id;
 
     // Authorization check for managers
     if (req.user.role === UserRole.MANAGER) {
@@ -569,7 +578,7 @@ router.post('/grant', authenticate, requireRole([UserRole.MANAGER, UserRole.ADMI
     // Create approved comp-off record
     const compOffRecord = {
       id: generateUUID(),
-      employee_id: employee.employee_id || employee.id,
+      employee_id: uidOf(employee),
       employee_email: employee.email,
       employee_name: employee.full_name,
       employee_role: 'employee',

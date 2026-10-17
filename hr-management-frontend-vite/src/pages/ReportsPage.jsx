@@ -11,6 +11,7 @@ import api from '@/lib/api';
 import { getAuth } from '@/lib/auth';
 import { exportCsv } from '@/lib/exportCsv';
 import { format } from 'date-fns';
+import { employeeLabel } from '@/lib/employeeLabel';
 
 const STATUS_STYLES = {
   approved: 'bg-green-100 text-green-700',
@@ -173,7 +174,7 @@ const ReportsPage = () => {
                     <SelectItem value="all">All Employees</SelectItem>
                     {employees.filter(emp => emp.email).map(emp => (
                       <SelectItem key={emp.email} value={emp.email}>
-                        {emp.full_name} ({emp.employee_id})
+                        {employeeLabel(emp.full_name, emp.employee_id)}
                       </SelectItem>
                     ))}
                   </SelectContent>

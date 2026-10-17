@@ -2,6 +2,7 @@
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { DEFAULT_TIMEZONE } from '@/lib/time';
 
 /** Human-readable message from an axios error (handles 422 field errors). */
 export function errorMessage(error, fallback = 'Something went wrong') {
@@ -11,10 +12,23 @@ export function errorMessage(error, fallback = 'Something went wrong') {
   return fallback;
 }
 
-export function fmtDateTime(value) {
+/**
+ * 'dd MMM yyyy, HH:mm' in the company / org timezone (not the browser's), so
+ * everyone sees the same wall-clock time. Timestamps from the API are UTC.
+ */
+export function fmtDateTime(value, timeZone = DEFAULT_TIMEZONE) {
   if (!value) return '—';
   const d = new Date(value);
-  return isNaN(d) ? '—' : format(d, 'dd MMM yyyy, HH:mm');
+  if (isNaN(d)) return '—';
+  const opts = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat('en-US', { ...opts, timeZone }).formatToParts(d);
+  } catch {
+    parts = new Intl.DateTimeFormat('en-US', { ...opts, timeZone: DEFAULT_TIMEZONE }).formatToParts(d);
+  }
+  const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
+  return `${p.day} ${p.month} ${p.year}, ${p.hour}:${p.minute}`;
 }
 
 export function fmtDate(value) {

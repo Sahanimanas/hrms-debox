@@ -270,7 +270,7 @@ export default function PayrollSettingsPage() {
         <TabsContent value="declarations" className="space-y-4 mt-4">
           <SectionCard icon={FileText} title="Investment declarations" bodyClassName="p-4 sm:p-5 space-y-2">
             <ToggleRow label="Declaration window open" hint="When closed, employees can't change declarations or their tax regime" checked={form.declaration_window_open} onChange={(v) => set('declaration_window_open', v)} />
-            <ToggleRow label="Use declared amounts until the proof deadline" hint="After the deadline only verified (approved) amounts reduce TDS" checked={form.use_declared_until_deadline} onChange={(v) => set('use_declared_until_deadline', v)} />
+            <ToggleRow label="Use declared amounts until the proof deadline" hint="Off (default): only verified (approved) amounts reduce TDS. On: declared amounts also count until the proof deadline below (needs a deadline)" checked={form.use_declared_until_deadline} onChange={(v) => set('use_declared_until_deadline', v)} />
             <div className="space-y-1 max-w-xs pt-2">
               <Label className="text-xs">Proof submission deadline</Label>
               <Input type="date" value={form.proof_deadline || ''} onChange={(e) => set('proof_deadline', e.target.value)} />

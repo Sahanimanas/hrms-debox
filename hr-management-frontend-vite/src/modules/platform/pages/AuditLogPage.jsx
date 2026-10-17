@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { useOrgPreferences } from '@/lib/orgPreferences';
+import { DEFAULT_TIMEZONE } from '@/lib/time';
 import PageHeader, { PageShell, LoadingBlock, EmptyBlock, ErrorBlock } from '../components/PageHeader';
 import { errorMessage, fmtDateTime, downloadFile, blobErrorMessage } from '../lib';
 
@@ -42,6 +44,9 @@ const AuditLogPage = () => {
   const [detail, setDetail] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  // Times are shown in the org timezone (Asia/Kolkata unless configured), not the browser's
+  const { prefs } = useOrgPreferences();
+  const timeZone = prefs.timezone || DEFAULT_TIMEZONE;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -208,7 +213,7 @@ const AuditLogPage = () => {
                 <tbody className="divide-y divide-slate-100">
                   {data.items.map(e => (
                     <tr key={e.id} className="hover:bg-slate-50 align-top">
-                      <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-600">{fmtDateTime(e.at)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-600">{fmtDateTime(e.at, timeZone)}</td>
                       <td className="px-4 py-3">
                         <p className="text-slate-900 truncate max-w-[180px]">{e.anonymous ? <span className="italic text-slate-400">anonymous</span> : e.actor_email || '—'}</p>
                         {e.actor_role && <p className="text-[11px] text-slate-500 capitalize">{e.actor_role}</p>}
@@ -258,7 +263,7 @@ const AuditLogPage = () => {
             <div className="space-y-3 text-sm">
               <dl className="grid grid-cols-[110px,1fr] gap-x-3 gap-y-1.5">
                 {[
-                  ['Time', fmtDateTime(detail.at)],
+                  ['Time', fmtDateTime(detail.at, timeZone)],
                   ['Actor', detail.anonymous ? 'anonymous (not recorded)' : detail.actor_email || '—'],
                   ['Role', detail.actor_role || '—'],
                   ['Action', detail.action],

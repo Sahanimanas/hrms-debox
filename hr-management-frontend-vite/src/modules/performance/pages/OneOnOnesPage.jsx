@@ -38,6 +38,7 @@ function MeetingForm({ meeting, team, onClose, onSaved }) {
   const save = async () => {
     if (!meeting && !form.employee_email) return toast.error('Choose a team member');
     if (!form.scheduled_at) return toast.error('Pick a date and time');
+    if (new Date(form.scheduled_at).getTime() < Date.now() - 5 * 60000) return toast.error("A 1:1 can't be scheduled in the past");
     const body = {
       title: form.title,
       scheduled_at: fromLocalInput(form.scheduled_at),
@@ -82,7 +83,7 @@ function MeetingForm({ meeting, team, onClose, onSaved }) {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5 col-span-2 sm:col-span-1">
             <Label htmlFor="m-when">When</Label>
-            <Input id="m-when" type="datetime-local" value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
+            <Input id="m-when" type="datetime-local" min={toLocalInput(new Date())} value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="m-dur">Minutes</Label>

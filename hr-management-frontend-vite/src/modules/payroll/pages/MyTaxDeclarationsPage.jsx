@@ -22,6 +22,7 @@ export default function MyTaxDeclarationsPage() {
   const [decl, setDecl] = useState(null);
   const [regime, setRegime] = useState('new');
   const [metro, setMetro] = useState(false);
+  const [parentsSenior, setParentsSenior] = useState(false);
   const [items, setItems] = useState([]);
   const [compare, setCompare] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +40,7 @@ export default function MyTaxDeclarationsPage() {
       setDecl(res.data);
       setRegime(res.data.tax_regime || 'new');
       setMetro(!!res.data.metro_city);
+      setParentsSenior(!!res.data.parents_senior_citizen);
       setItems((res.data.items || []).map(i => ({ ...i, _key: i.id })));
     } catch (e) {
       setError(errMsg(e, 'Failed to load your declaration'));
@@ -72,6 +74,7 @@ export default function MyTaxDeclarationsPage() {
         hra_received_annual: hra * 12,
         rent_paid_annual: rent,
         metro,
+        parents_senior_citizen: parentsSenior,
         professional_tax: (latest.statutory?.pt || 0) * 12,
         deductions,
       });
@@ -79,7 +82,7 @@ export default function MyTaxDeclarationsPage() {
     } catch {
       setCompare(null);
     }
-  }, [items, metro, fy]);
+  }, [items, metro, parentsSenior, fy]);
 
   useEffect(() => { if (!loading) runCompare(); }, [loading, runCompare]);
 
@@ -100,6 +103,7 @@ export default function MyTaxDeclarationsPage() {
         financial_year: fy,
         tax_regime: regime,
         metro_city: metro,
+        parents_senior_citizen: parentsSenior,
         items: items.map(i => ({
           ...(i.id ? { id: i.id } : {}),
           section: i.section,
@@ -200,7 +204,16 @@ export default function MyTaxDeclarationsPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
         <StatCard label="Declared" value={fmtINR(summary.declared, 0)} tone="slate" />
         <StatCard label="Approved" value={fmtINR(summary.approved, 0)} tone="emerald" />
-        <StatCard label="Counted for TDS" value={fmtINR(summary.counted, 0)} tone="blue" hint={decl?.proof_deadline ? `Proofs due ${fmtDate(decl.proof_deadline)}` : null} />
+        <StatCard
+          label="Counted for TDS"
+          value={fmtINR(summary.counted, 0)}
+          tone="blue"
+          hint={[
+            summary.over_limit > 0 ? `${fmtINR(summary.over_limit, 0)} above section limits not counted` : null,
+            summary.declared_counts ? null : 'Only verified amounts count',
+            decl?.proof_deadline ? `Proofs due ${fmtDate(decl.proof_deadline)}` : null,
+          ].filter(Boolean).join(' · ') || null}
+        />
         <StatCard label="Awaiting verification" value={summary.pending_items ?? 0} tone="amber" />
       </div>
 
@@ -241,6 +254,12 @@ export default function MyTaxDeclarationsPage() {
           <span>I live in a metro city (Delhi, Mumbai, Kolkata, Chennai) <span className="block text-xs text-slate-500">HRA exemption uses 50% of basic in metros, 40% elsewhere</span></span>
           <Switch checked={metro} disabled={locked} onCheckedChange={setMetro} />
         </label>
+        {items.some(i => i.section === '80D_parents') && (
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span>My parents are senior citizens (60+) <span className="block text-xs text-slate-500">Raises the 80D (parents) limit from ₹25,000 to ₹50,000</span></span>
+            <Switch checked={parentsSenior} disabled={locked} onCheckedChange={setParentsSenior} />
+          </label>
+        )}
 
         {items.length === 0 ? (
           <EmptyBlock icon={Landmark} title="Nothing declared yet">Add PPF/ELSS/insurance (80C), health insurance (80D), rent (HRA), home-loan interest and more.</EmptyBlock>
@@ -258,6 +277,15 @@ export default function MyTaxDeclarationsPage() {
                 )}
               </div>
               {item.rejection_reason && <p className="text-xs text-red-600">Rejected: {item.rejection_reason} — upload a new proof or correct the amount.</p>}
+              {(() => {
+                const sec = summary.by_section?.[item.section];
+                if (!sec || item.status !== 'approved' || sec.counted >= sec.claimed) return null;
+                return (
+                  <p className="text-xs text-amber-700">
+                    Section limit {fmtINR(sec.cap, 0)}{sec.cap_group ? ` (${sec.cap_group}: 80C + 80CCC + 80CCD(1) together)` : ''}: {fmtINR(sec.counted, 0)} of {fmtINR(sec.claimed, 0)} approved counts for TDS.
+                  </p>
+                );
+              })()}
               <div className="grid sm:grid-cols-3 gap-2">
                 <div className="space-y-1">
                   <Label className="text-xs">Section</Label>
@@ -301,7 +329,7 @@ export default function MyTaxDeclarationsPage() {
           );
         })}
         <input ref={fileRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="hidden" onChange={onFile} />
-        <p className="text-xs text-slate-500">80C is capped at ₹1.5 lakh (your PF counts towards it), 80D self ₹25,000, parents ₹50,000, 80CCD(1B) ₹50,000, home-loan interest ₹2 lakh. Proofs: PDF or image up to 5 MB.</p>
+        <p className="text-xs text-slate-500">Only verified amounts reduce TDS. 80C, 80CCC and 80CCD(1) share one ₹1.5 lakh limit (your PF counts towards it), 80CCD(1B) ₹50,000 more, 80D ₹25,000 each for self and parents (₹50,000 if senior citizens), home-loan interest ₹2 lakh. Proofs: PDF or image up to 5 MB.</p>
       </SectionCard>
     </PageShell>
   );

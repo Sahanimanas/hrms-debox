@@ -15,7 +15,7 @@ import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { exportCsv } from '@/lib/exportCsv';
 import ApprovalChain from '@/modules/leave/components/ApprovalChain';
-import { fmtKey, toDateKey, creditLabel, leaveKey, keyToLocalDate } from '@/modules/leave/lib';
+import { fmtKey, toDateKey, creditLabel, leaveKey, keyToLocalDate, isCompOffKey } from '@/modules/leave/lib';
 import PageHeader, { PageShell } from '@/modules/platform/components/PageHeader';
 import { StatusBadge, IconTile, Segmented } from '@/components/ds';
 
@@ -65,6 +65,27 @@ const approverOf = (leave) => {
   if (last?.approver_name) return last.approver_name;
   const acted = [...chain].reverse().find((s) => s.acted_by_name || s.acted_by_email);
   return acted ? (acted.acted_by_name || acted.acted_by_email) : '—';
+};
+
+// Exactly one Comp Off entry: a "Comp Off" / "CompOff" type in the policy and the
+// built-in comp-off balance are the same thing (leave_balance.comp_off).
+const withSingleCompOff = (types, available) => {
+  const fromPolicy = types.find(t => isCompOffKey(t.key) || isCompOffKey(t.name));
+  return [
+    ...types.filter(t => t !== fromPolicy && !isCompOffKey(t.key) && !isCompOffKey(t.name)),
+    {
+      ...(fromPolicy || {}),
+      name: fromPolicy?.name || 'Comp Off',
+      key: 'comp_off',
+      quota: 0,
+      available: available ?? 0,
+      description: fromPolicy?.description || 'Compensatory off for working on holidays/weekends',
+      isCompOff: true,
+      isUnlimited: false,
+      perOccurrence: false,
+      clubbingNotAllowedWith: fromPolicy?.clubbingNotAllowedWith || []
+    }
+  ];
 };
 
 const STATUS_FILTERS = [
@@ -178,17 +199,9 @@ const LeavesPage = () => {
               sandwich: t.sandwich_rule,
               creditLabel: creditLabel(t),
             }));
-          types.push({
-            name: 'Comp Off',
-            key: 'comp_off',
-            quota: 0,
-            available: res.data.comp_off ?? 0,
-            description: 'Compensatory off for working on holidays/weekends',
-            isCompOff: true,
-            clubbingNotAllowedWith: []
-          });
-          setLeaveTypes(types);
-          setDefaultLeaveType(types[0].name);
+          const merged = withSingleCompOff(types, res.data.comp_off);
+          setLeaveTypes(merged);
+          setDefaultLeaveType(merged[0].name);
           return;
         }
       } catch {
@@ -204,8 +217,8 @@ const LeavesPage = () => {
       const balance = profileResponse.data?.leave_balance || {};
 
       // Build leave types array with both quota and available balance
-      const types = policies.map(policy => {
-        const key = policy.leave_type.toLowerCase().replace(/ /g, '_');
+      const policyTypes = policies.map(policy => {
+        const key = leaveKey(policy.leave_type);
         return {
           name: policy.leave_type,
           key: key,
@@ -226,17 +239,8 @@ const LeavesPage = () => {
         };
       });
 
-      // Add Comp Off (not in policy but always available as an option)
-      const compOffBalance = balance.comp_off ?? 0;
-      types.push({
-        name: 'Comp Off',
-        key: 'comp_off',
-        quota: 0,
-        available: compOffBalance,
-        description: 'Compensatory off for working on holidays/weekends',
-        isCompOff: true,
-        clubbingNotAllowedWith: []
-      });
+      // Add Comp Off (not in policy but always available as an option) — only once
+      const types = withSingleCompOff(policyTypes, balance.comp_off);
 
       setLeaveTypes(types);
 
@@ -344,45 +348,6 @@ const LeavesPage = () => {
     };
   }, [selectedLeaveTypesSet, leaveTypes]);
 
-  // Calculate balance usage per leave type
-  const balanceUsage = useMemo(() => {
-    const usage = {};
-
-    Object.entries(selectedDates).forEach(([date, config]) => {
-      const leaveType = config.leaveType;
-      if (!leaveType) return;
-
-      if (!usage[leaveType]) {
-        usage[leaveType] = { days: 0, dates: [] };
-      }
-      const dayValue = config.type === 'full' ? 1 : 0.5;
-      usage[leaveType].days += dayValue;
-      usage[leaveType].dates.push(date);
-    });
-
-    // Add balance info
-    Object.keys(usage).forEach(type => {
-      const typeInfo = leaveTypes.find(t => t.name === type);
-      usage[type].available = typeInfo?.perOccurrence ? typeInfo.quota : (typeInfo?.available ?? 0);
-      usage[type].isUnpaid = typeInfo?.isUnlimited || false;
-      usage[type].perOccurrence = typeInfo?.perOccurrence || false;
-      usage[type].sufficient = usage[type].isUnpaid || usage[type].available >= usage[type].days;
-    });
-
-    return usage;
-  }, [selectedDates, leaveTypes]);
-
-  // Check for insufficient balance
-  const insufficientBalanceTypes = useMemo(() => {
-    return Object.entries(balanceUsage)
-      .filter(([, info]) => !info.isUnpaid && !info.sufficient)
-      .map(([type, info]) => ({
-        type,
-        available: info.available,
-        requested: info.days
-      }));
-  }, [balanceUsage]);
-
   // One application per leave type + full/half configuration (same grouping as submit)
   const applicationGroups = useMemo(() => {
     const groups = {};
@@ -433,6 +398,56 @@ const LeavesPage = () => {
   const serverErrors = previewRows.flatMap(r => (r.result?.errors || []).map(e => ({ ...e, leaveType: r.group.leaveType })));
   const serverTotalDays = previewRows.reduce((sum, r) => sum + (r.result?.days?.days_count ?? 0), 0);
   const sandwichTotal = previewRows.reduce((sum, r) => sum + (r.result?.days?.sandwich_days ?? 0), 0);
+  // Weekly offs / holidays in the selection that are not charged (sandwich rule off)
+  const excludedDays = previewRows.flatMap(r => r.result?.days?.excluded_dates || []);
+
+  // Calculate balance usage per leave type
+  const balanceUsage = useMemo(() => {
+    const usage = {};
+
+    Object.entries(selectedDates).forEach(([date, config]) => {
+      const leaveType = config.leaveType;
+      if (!leaveType) return;
+
+      if (!usage[leaveType]) {
+        usage[leaveType] = { days: 0, dates: [] };
+      }
+      const dayValue = config.type === 'full' ? 1 : 0.5;
+      usage[leaveType].days += dayValue;
+      usage[leaveType].dates.push(date);
+    });
+
+    // Prefer the server count (weekly offs / holidays skipped, sandwich rule) once it is in
+    Object.keys(usage).forEach(type => {
+      const rows = previewRows.filter(r => r.group.leaveType === type);
+      if (rows.length && rows.every(r => r.result?.days)) {
+        usage[type].days = rows.reduce((sum, r) => sum + r.result.days.days_count, 0);
+      }
+    });
+
+    // Add balance info
+    Object.keys(usage).forEach(type => {
+      const typeInfo = leaveTypes.find(t => t.name === type);
+      usage[type].available = typeInfo?.perOccurrence ? typeInfo.quota : (typeInfo?.available ?? 0);
+      usage[type].isUnpaid = typeInfo?.isUnlimited || false;
+      usage[type].perOccurrence = typeInfo?.perOccurrence || false;
+      usage[type].sufficient = usage[type].isUnpaid || usage[type].available >= usage[type].days;
+    });
+
+    return usage;
+  }, [selectedDates, leaveTypes, serverPreview, applicationGroups]);
+
+  // Check for insufficient balance
+  const insufficientBalanceTypes = useMemo(() => {
+    return Object.entries(balanceUsage)
+      .filter(([, info]) => !info.isUnpaid && !info.sufficient)
+      .map(([type, info]) => ({
+        type,
+        available: info.available,
+        requested: info.days
+      }));
+  }, [balanceUsage]);
+
 
   const addDateRange = () => {
     if (!rangeFrom || !rangeTo || rangeTo < rangeFrom) {
@@ -652,6 +667,7 @@ const LeavesPage = () => {
   };
 
   const calculateTotalDays = () => {
+    if (previewRows.length && !previewPending && previewRows.every(r => r.result?.days)) return serverTotalDays;
     return Object.values(selectedDates).reduce((total, config) => {
       return total + (config.type === 'full' ? 1 : 0.5);
     }, 0);
@@ -1019,6 +1035,7 @@ const LeavesPage = () => {
             ? `${days} days charged (incl. ${sandwichTotal} sandwiched day${sandwichTotal > 1 ? 's' : ''})`
             : `${days} working day${days !== 1 ? 's' : ''}`}
           {excluded.length > 0 && ` (${excluded.map(h => `${h.name} on ${fmtKey(h.key, 'dd MMM')}`).join(', ')} ${excluded.length > 1 ? 'are' : 'is'} excluded)`}
+          {excludedDays.length > 0 && ` — ${excludedDays.length} weekly off/holiday day${excludedDays.length > 1 ? 's' : ''} not counted`}
           .
           {rangeFrom && quickRange.skippedExisting > 0 && ` ${quickRange.skippedExisting} day${quickRange.skippedExisting > 1 ? 's' : ''} skipped (existing leave).`}
           {left != null && ` You'll have ${left} day${left !== 1 ? 's' : ''} of ${single.name} left.`}
@@ -1047,7 +1064,9 @@ const LeavesPage = () => {
   const usualApprover = useMemo(() => {
     for (const l of leaves) {
       const chain = Array.isArray(l.approval_chain) ? [...l.approval_chain].sort((a, b) => (a.level ?? 0) - (b.level ?? 0)) : [];
-      if (chain[0]) return chain[0].approver_type === 'admin' ? 'HR / admin' : (chain[0].approver_name || null);
+      // Skipped levels (e.g. no reporting manager) never see the request
+      const first = chain.find(s => s.status !== 'skipped');
+      if (first) return first.approver_type === 'admin' ? 'HR / admin' : (first.approver_name || null);
     }
     return null;
   }, [leaves]);
@@ -1771,6 +1790,9 @@ const LeavesPage = () => {
                     <span className="font-medium text-ink">{group.leaveType}</span>
                     {group.is_half_day ? ` (half day, ${group.half_day_period})` : ''}: {group.dates.length} selected
                     {result?.days && <> → <span className="font-medium">{result.days.days_count} day{result.days.days_count !== 1 ? 's' : ''}</span></>}
+                    {result?.days?.excluded_dates?.length > 0 && (
+                      <span className="text-ink-muted"> ({result.days.excluded_dates.length} weekly off/holiday day{result.days.excluded_dates.length > 1 ? 's' : ''} not counted)</span>
+                    )}
                     {result?.days?.sandwich_days > 0 && (
                       <ul className="ml-3 mt-0.5 list-disc text-warning-fg">
                         {result.days.breakdown.map(b => <li key={b.date}>{fmtKey(b.date, 'EEE, dd MMM')} — {b.reason} (sandwich rule)</li>)}

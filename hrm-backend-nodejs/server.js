@@ -36,6 +36,7 @@ const timesheetRoutes = require('./routes/timesheets');
 const { mountModules } = require('./routes/modules');
 const { auditLog } = require('./middleware/auditLog');
 const { startCron } = require('./cron');
+const { runStartupMigrations } = require('./services/employeeIdentity');
 const baileysService = require('./services/baileysService');
 
 
@@ -45,6 +46,14 @@ const baileysService = require('./services/baileysService');
 
 
 const app = express();
+
+// Behind Nginx / a load balancer: trust X-Forwarded-* from loopback and
+// private addresses so req.ip is the real client (audit log, password reset).
+// TRUST_PROXY overrides: a hop count, 'true', 'false' or a list of subnets.
+const trustProxy = (process.env.TRUST_PROXY || '').trim();
+app.set('trust proxy', !trustProxy ? 'loopback, linklocal, uniquelocal'
+  : /^\d+$/.test(trustProxy) ? Number(trustProxy)
+    : trustProxy === 'true' ? true : trustProxy === 'false' ? false : trustProxy);
 
 // Middleware
 app.use(cors({
@@ -190,6 +199,8 @@ async function startServer() {
     try {
       const db = await connectDB(databaseUrl, dbName);
       console.log('\x1b[32m[DATABASE] Connected to PostgreSQL\x1b[0m');
+      // Employee codes / ids backfill + unique indexes (idempotent, never throws)
+      await runStartupMigrations(db);
       startCron(db);
     } catch (error) {
       console.error('\x1b[31m[DATABASE] Failed to connect to PostgreSQL:\x1b[0m', error.message);

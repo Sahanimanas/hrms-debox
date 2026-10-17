@@ -120,6 +120,14 @@ const other = (m, email) => (m.manager_email === email ? m.employee_email : m.ma
 
 // ============= 1:1 ROUTES =============
 
+// A few minutes of slack so "now" in the form isn't rejected for clock skew
+const PAST_GRACE_MS = 5 * 60000;
+const MAX_DURATION_MS = 480 * 60000;
+const meetingEnd = (m) => new Date(m.scheduled_at).getTime() + (m.duration_minutes || 30) * 60000;
+const assertNotPast = (when) => {
+  if (when && when.getTime() < Date.now() - PAST_GRACE_MS) fail(400, "A 1:1 can't be scheduled in the past");
+};
+
 /**
  * GET /one-on-ones?when=upcoming|past|all&scope=mine|all&employee_email
  */
@@ -133,13 +141,18 @@ router.get('/one-on-ones', h(async (req, res) => {
   }
   if (req.query.employee_email) filter.employee_email = req.query.employee_email;
   const when = req.query.when || 'all';
-  if (when === 'upcoming') {
-    filter.status = 'scheduled';
-  } else if (when === 'past') {
-    filter.status = { $in: ['completed', 'cancelled'] };
-  }
-  const list = await db.collection('one_on_ones').find(filter, { projection: { _id: 0 } })
+  // Upcoming = scheduled and not yet over; a scheduled 1:1 whose time has passed
+  // (never marked done) is listed under Past so it can still be completed.
+  const nowMs = Date.now();
+  const query = when === 'upcoming'
+    ? { ...filter, status: 'scheduled', scheduled_at: { $gte: new Date(nowMs - MAX_DURATION_MS) } }
+    : when === 'past'
+      ? { $and: [filter, { $or: [{ status: { $in: ['completed', 'cancelled'] } }, { status: 'scheduled', scheduled_at: { $lt: new Date(nowMs) } }] }] }
+      : filter;
+  let list = await db.collection('one_on_ones').find(query, { projection: { _id: 0 } })
     .sort({ scheduled_at: when === 'upcoming' ? 1 : -1 }).limit(500).toArray();
+  if (when === 'upcoming') list = list.filter(m => meetingEnd(m) > nowMs);
+  if (when === 'past') list = list.filter(m => m.status !== 'scheduled' || meetingEnd(m) <= nowMs);
   res.json(list.map(m => viewMeeting(req, m)));
 }));
 
@@ -149,6 +162,7 @@ router.post('/one-on-ones', requireRole(['manager', 'admin']), validate(meetingC
   const employee = await findEmployee(db, data.employee_email);
   if (!employee || !isActiveEmployee(employee)) fail(404, 'Employee not found');
   if (!isManagerOf(req, employee)) fail(403, 'You can only schedule 1:1s with your team');
+  assertNotPast(data.scheduled_at);
   const meeting = {
     id: generateUUID(),
     series_id: generateUUID(),
@@ -198,6 +212,7 @@ router.put('/one-on-ones/:id', validate(meetingUpdate), h(async (req, res) => {
   const { m, role } = await loadMeeting(db, req, req.params.id);
   if (role === 'employee') fail(403, 'Only the manager can change the meeting');
   if (m.status !== 'scheduled') fail(400, 'Only scheduled meetings can be changed');
+  if (req.validatedBody.scheduled_at) assertNotPast(req.validatedBody.scheduled_at);
   const updates = { ...req.validatedBody, updated_at: now() };
   if (updates.meeting_link === '') updates.meeting_link = null;
   await db.collection('one_on_ones').updateOne({ id: m.id }, { $set: updates });

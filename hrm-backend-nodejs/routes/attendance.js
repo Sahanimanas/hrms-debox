@@ -6,7 +6,44 @@ const { authenticate } = require('../middleware/auth');
 const { requireRole, validate } = require('../middleware/roleCheck');
 const { schemas, AttendanceStatus } = require('../models/schemas');
 
-const { employeeUid } = require('../utils/helpers');
+const { employeeUid, localParts } = require('../utils/helpers');
+
+/** Unique per-employee grid row key: uuid id, else Mongo _id, else email (never the code). */
+const rowKey = (emp) => emp.id || (emp._id != null ? String(emp._id) : null) || emp.email;
+
+/** Today in the company timezone, 'YYYY-MM-DD'. */
+const todayStr = () => localParts(new Date()).date;
+
+/** 'YYYY-MM-DD' -> { day, month, year } without a timezone round-trip. */
+const ymd = (date) => {
+  const [year, month, day] = date.split('-').map(Number);
+  return { day, month, year };
+};
+
+const FUTURE_DATE = 'Attendance cannot be marked for a future date';
+
+/**
+ * Resolve what the grid sends (its row key, or an email / employee code from
+ * older clients) to { uid: attendance storage key, email }. A code shared by
+ * two employees resolves to nothing, so one click can never mark both rows.
+ */
+async function attendanceKeyResolver(db) {
+  const employees = await db.collection('employees')
+    .find({}, { projection: { _id: 1, id: 1, email: 1, employee_id: 1, employee_code: 1 } })
+    .toArray();
+  const unique = new Map();
+  const byCode = new Map();
+  for (const emp of employees) {
+    const target = { uid: employeeUid(emp), email: emp.email || null };
+    for (const ref of [emp.id, emp._id != null ? String(emp._id) : null, emp.email]) {
+      if (ref) unique.set(ref, target);
+    }
+    for (const code of new Set([emp.employee_id, emp.employee_code].filter(Boolean))) {
+      byCode.set(code, [...(byCode.get(code) || []), target]);
+    }
+  }
+  return (ref) => unique.get(ref) || (byCode.get(ref)?.length === 1 ? byCode.get(ref)[0] : null);
+}
 
 /**
  * GET /api/attendance
@@ -80,14 +117,16 @@ router.get('/', authenticate, requireRole(['admin', 'manager']), async (req, res
       attendanceMap[record.employee_id] = record.attendance || {};
     });
 
-    // Combine employees with their attendance, keyed by a guaranteed-unique id.
-    // We expose that unique id back as `employee_id` so the frontend grid and the
-    // mark endpoints all agree on the same per-employee key.
+    // Combine employees with their attendance. `uid` is the grid's row key
+    // (unique internal id, sent back by the mark endpoints); `employee_id` is
+    // the attendance storage key and `employee_code` the code to display.
     const result = employees.map(emp => {
       const uid = employeeUid(emp);
       return {
         ...emp,
+        uid: rowKey(emp),
         employee_id: uid,
+        employee_code: emp.employee_id || emp.employee_code || '',
         attendance: attendanceMap[uid] || {}
       };
     });
@@ -95,6 +134,7 @@ router.get('/', authenticate, requireRole(['admin', 'manager']), async (req, res
     res.json({
       month: targetMonth,
       year: targetYear,
+      today: todayStr(),
       daysInMonth,
       holidays: holidays.map(h => ({
         date: h.date,
@@ -118,13 +158,21 @@ router.get('/', authenticate, requireRole(['admin', 'manager']), async (req, res
 router.post('/mark', authenticate, requireRole(['admin']), validate(schemas.attendanceMark), async (req, res) => {
   try {
     const db = getDB();
-    const { employee_id, date, status } = req.validatedBody;
+    const { employee_id: ref, date, status } = req.validatedBody;
+
+    // Clearing a cell is always allowed; marking a future day is not
+    if (status !== '' && date > todayStr()) {
+      return res.status(400).json({ detail: FUTURE_DATE });
+    }
+
+    const target = (await attendanceKeyResolver(db))(ref);
+    if (!target) {
+      return res.status(404).json({ detail: 'Employee not found' });
+    }
+    const employee_id = target.uid;
 
     // Check if the date is a holiday
-    const dateObj = new Date(date);
-    const day = dateObj.getDate();
-    const month = dateObj.getMonth() + 1;
-    const year = dateObj.getFullYear();
+    const { day, month, year } = ymd(date);
 
     // Fetch all holidays and check if this date is a holiday
     const allHolidays = await db.collection('holidays').find({}).toArray();
@@ -159,6 +207,7 @@ router.post('/mark', authenticate, requireRole(['admin']), validate(schemas.atte
         {
           $set: {
             [updateField]: status,
+            employee_email: target.email,
             updated_at: new Date()
           },
           $setOnInsert: {
@@ -203,16 +252,25 @@ router.post('/bulk-mark', authenticate, requireRole(['admin']), validate(schemas
       holidayDates.add(key);
     });
 
+    // Reject the whole batch on a future date or an unknown employee
+    const today = todayStr();
+    if (records.some(r => r.status !== '' && r.date > today)) {
+      return res.status(400).json({ detail: FUTURE_DATE });
+    }
+    const resolve = await attendanceKeyResolver(db);
+    const unknown = [...new Set(records.map(r => r.employee_id).filter(ref => !resolve(ref)))];
+    if (unknown.length) {
+      return res.status(400).json({ detail: `Employee not found: ${unknown.slice(0, 5).join(', ')}` });
+    }
+
     const bulkOps = [];
     let skippedHolidays = 0;
 
     for (const record of records) {
-      const { employee_id, date, status } = record;
-
-      const dateObj = new Date(date);
-      const day = dateObj.getDate();
-      const month = dateObj.getMonth() + 1;
-      const year = dateObj.getFullYear();
+      const { date, status } = record;
+      const target = resolve(record.employee_id);
+      const employee_id = target.uid;
+      const { day, month, year } = ymd(date);
 
       // Check if this date is a holiday
       const dateKey = `${year}-${month}-${day}`;
@@ -240,6 +298,7 @@ router.post('/bulk-mark', authenticate, requireRole(['admin']), validate(schemas
             update: {
               $set: {
                 [updateField]: status,
+                employee_email: target.email,
                 updated_at: new Date()
               },
               $setOnInsert: {
@@ -276,10 +335,11 @@ router.post('/mark-column', authenticate, requireRole(['admin']), validate(schem
     const db = getDB();
     const { date, status } = req.validatedBody;
 
-    const dateObj = new Date(date);
-    const day = dateObj.getDate();
-    const month = dateObj.getMonth() + 1;
-    const year = dateObj.getFullYear();
+    if (date > todayStr()) {
+      return res.status(400).json({ detail: FUTURE_DATE });
+    }
+
+    const { day, month, year } = ymd(date);
 
     // Check if the date is a holiday
     const allHolidays = await db.collection('holidays').find({}).toArray();

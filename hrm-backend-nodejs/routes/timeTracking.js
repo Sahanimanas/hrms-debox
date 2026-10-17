@@ -139,11 +139,12 @@ router.post('/shifts', requireRole(['admin']), validate(schemas.shiftCreate), as
       return res.status(400).json({ detail: 'Half-day hours cannot exceed full-day hours' });
     }
 
-    const existingCount = await db.collection('shifts').countDocuments();
+    // Only an explicit toggle makes a shift the default. Without one, employees with
+    // no assigned shift stay on the built-in General shift.
     const shift = {
       id: generateUUID(),
       ...data,
-      is_default: data.is_default || existingCount === 0, // first shift becomes the default
+      is_default: !!data.is_default,
       created_by: req.user.email,
       created_at: new Date(),
       updated_at: new Date()
@@ -174,9 +175,7 @@ router.put('/shifts/:id', requireRole(['admin']), validate(schemas.shiftUpdate),
     if (merged.half_day_minutes > merged.full_day_minutes) {
       return res.status(400).json({ detail: 'Half-day hours cannot exceed full-day hours' });
     }
-    if (updates.is_default === false && shift.is_default) {
-      return res.status(400).json({ detail: 'Make another shift the default instead of unsetting this one' });
-    }
+    // Unsetting the default puts unassigned employees back on the built-in General shift
     if (updates.is_default) {
       await db.collection('shifts').updateMany({ id: { $ne: shift.id } }, { $set: { is_default: false } });
     }
@@ -715,6 +714,10 @@ router.post('/requests/:id/action', requireRole(['admin', 'manager']), validate(
     const request = await db.collection('attendance_requests').findOne({ id: req.params.id });
     if (!request) return res.status(404).json({ detail: 'Request not found' });
     if (request.status !== 'pending') return res.status(400).json({ detail: `Request is already ${request.status}` });
+    // Nobody approves their own request, admins included (same rule as profile change requests)
+    if (req.validatedBody.action === 'approve' && request.user_email === req.user.email) {
+      return res.status(403).json({ detail: 'You cannot approve your own request; another approver must act on it' });
+    }
     if (!(await canActOnEmployee(db, req.user, request.user_email))) {
       return res.status(403).json({ detail: 'You can only act on requests from your team' });
     }

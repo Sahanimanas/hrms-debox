@@ -13,7 +13,7 @@ import api from '@/lib/api';
 import { format } from 'date-fns';
 import { exportCsv } from '@/lib/exportCsv';
 import ApprovalChain from '@/modules/leave/components/ApprovalChain';
-import { fmtKey, toDateKey } from '@/modules/leave/lib';
+import { fmtKey, toDateKey, isCompOffKey } from '@/modules/leave/lib';
 
 const FALLBACK_TYPES = ['Earned Leave', 'Sick Leave', 'Casual Leave', 'Paid Leave', 'Unpaid Leave', 'Comp Off'];
 
@@ -37,7 +37,8 @@ const AllLeavesPage = () => {
     api.get('/leaves/leave-policy')
       .then((res) => {
         const names = (res.data?.policies || []).map((p) => p.leave_type);
-        if (names.length) setTypeNames([...new Set([...names, 'Comp Off'])]);
+        // One Comp Off entry even when the policy also lists it ("Comp Off" / "CompOff")
+        if (names.length) setTypeNames([...new Set(names), ...(names.some(isCompOffKey) ? [] : ['Comp Off'])]);
       })
       .catch(() => {});
   }, []);

@@ -16,6 +16,7 @@ import InstallPrompt from '@/modules/platform/components/InstallPrompt';
 import LanguageSwitcher from '@/modules/platform/components/LanguageSwitcher';
 import AssistantWidget from '@/modules/platform/components/AssistantWidget';
 import { OfflineBanner, TwoFactorBanner } from '@/modules/platform/components/ShellBanners';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 // Built-in pages. Modules add theirs through src/modules/registry.js.
 // Visibility: an item shows when the user's role is in `roles`, OR — when the
@@ -106,6 +107,19 @@ const Layout = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hide the "Ask Xeno AI" card and floating assistant button until AI is set up
+  // (same check the AI Assistant page uses). Re-checked after leaving AI settings.
+  const [aiConfigured, setAiConfigured] = useState(false);
+  const onAiSettings = location.pathname === '/ai-settings';
+  useEffect(() => {
+    if (onAiSettings) return undefined;
+    let alive = true;
+    api.get('/v2/platform/assistant/status')
+      .then((response) => { if (alive) setAiConfigured(!!response.data?.configured); })
+      .catch(() => { if (alive) setAiConfigured(false); });
+    return () => { alive = false; };
+  }, [onAiSettings]);
+
   const handleLogout = () => {
     clearAuth();
     clearOrgPreferences();
@@ -128,7 +142,7 @@ const Layout = () => {
   const email = currentUser?.email || user?.email;
   const orgName = currentUser?.organization_name || currentUser?.organization?.name;
   const sidebarProps = {
-    items: filteredNavigation, isActive, orgName, displayName, profilePictureUrl, roleLabel, onLogout: handleLogout,
+    items: filteredNavigation, isActive, orgName, displayName, profilePictureUrl, roleLabel, onLogout: handleLogout, aiConfigured,
   };
 
   return (
@@ -188,20 +202,23 @@ const Layout = () => {
 
         {/* Page Content */}
         <main className="flex-1 overflow-y-auto">
-          <Outlet />
+          {/* A crashing page shows an error card here instead of blanking the app */}
+          <ErrorBoundary resetKey={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
 
       <InstallPrompt />
-      {location.pathname !== '/assistant' && <AssistantWidget isAdmin={user?.role === 'admin'} />}
+      {aiConfigured && location.pathname !== '/assistant' && <AssistantWidget isAdmin={user?.role === 'admin'} />}
     </div>
   );
 };
 
 /** Sidebar contents (Figma "App/Sidebar"), shared by the desktop rail and the mobile drawer. */
-const SidebarBody = ({ items, isActive, orgName, displayName, profilePictureUrl, roleLabel, onLogout, onNavigate, onClose }) => {
+const SidebarBody = ({ items, isActive, orgName, displayName, profilePictureUrl, roleLabel, onLogout, onNavigate, onClose, aiConfigured }) => {
   const { t } = useI18n();
-  const hasAssistant = items.some(i => i.href === '/assistant');
+  const hasAssistant = aiConfigured && items.some(i => i.href === '/assistant');
   return (
     <div className="flex flex-1 min-h-0 flex-col gap-5 px-4 py-5">
       <div className="flex items-center gap-2.5 px-2">

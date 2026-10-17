@@ -11,6 +11,7 @@ import { exportCsv } from '@/lib/exportCsv';
 import ChangeBadge from '../components/ChangeBadge';
 import { PageShell, SectionCard, LoadingBlock, EmptyBlock, ErrorBlock, DataTable } from '../components/PayrollUI';
 import { API, errMsg, fmtINR, fmtDate, monthLabel, currentMonth } from '../lib';
+import { employeeLabel } from '@/lib/employeeLabel';
 
 const DEFAULT_COMPONENTS = [
   { name: 'Basic Pay', amount: 50, is_percentage: true, calculation_base: 'ctc', type: 'earning', order: 1 },
@@ -157,7 +158,7 @@ export default function SalaryRevisionsPage() {
               <Label className="text-xs">Employee</Label>
               <Select value={form.employee_uid} onValueChange={pickEmployee}>
                 <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent>{employees.map(e => <SelectItem key={e.uid} value={e.uid}>{e.name} ({e.employee_code})</SelectItem>)}</SelectContent>
+                <SelectContent>{employees.map(e => <SelectItem key={e.uid} value={e.uid}>{employeeLabel(e.name, e.employee_code)}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">

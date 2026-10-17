@@ -167,6 +167,20 @@ const assetFields = (data, categoryKey) => {
   return fields;
 };
 
+/**
+ * Date sanity for an asset: no purchase date in the future, and the warranty
+ * can't expire before the purchase. `current` is the stored asset on update.
+ */
+const assetDatesError = (fields, current = {}) => {
+  const purchase = fields.purchase_date !== undefined ? fields.purchase_date : current.purchase_date;
+  const warranty = fields.warranty_expiry !== undefined ? fields.warranty_expiry : current.warranty_expiry;
+  const purchaseKey = purchase ? toDateOnly(purchase).toISOString().slice(0, 10) : null;
+  const warrantyKey = warranty ? toDateOnly(warranty).toISOString().slice(0, 10) : null;
+  if (fields.purchase_date !== undefined && purchaseKey && purchaseKey > todayStr()) return 'Purchase date cannot be in the future';
+  if (purchaseKey && warrantyKey && warrantyKey < purchaseKey) return 'Warranty expiry cannot be before the purchase date';
+  return null;
+};
+
 const ensureUnique = async (db, fields, excludeId) => {
   const base = excludeId ? { id: { $ne: excludeId } } : {};
   if (fields.asset_tag_key && await db.collection('assets').findOne({ ...base, asset_tag_key: fields.asset_tag_key })) {
@@ -424,6 +438,10 @@ router.post('/items/import', adminOnly, singleUpload('file', {
     if (error) error.details.forEach(d => rowErrors.push(d.message.replace(/"/g, '')));
     const categoryKey = resolveCategory(categories, input.category);
     if (input.category && !categoryKey) rowErrors.push(`Unknown category "${input.category}"`);
+    if (!error) {
+      const dateProblem = assetDatesError(assetFields(value));
+      if (dateProblem) rowErrors.push(dateProblem);
+    }
 
     const tagKey = input.asset_tag ? String(input.asset_tag).trim().toLowerCase() : null;
     const serialKey = input.serial_number ? String(input.serial_number).trim().toLowerCase() : null;
@@ -480,6 +498,8 @@ router.post('/items', adminOnly, validate(assetCreateSchema), handle('Create ass
   if (!categoryKey) return res.status(422).json({ detail: `Unknown category "${data.category}"` });
 
   const fields = assetFields(data, categoryKey);
+  const dateProblem = assetDatesError(fields);
+  if (dateProblem) return res.status(422).json({ detail: dateProblem });
   await ensureUnique(db, fields);
   const now = new Date();
   const asset = {
@@ -532,6 +552,8 @@ router.put('/items/:id', adminOnly, validate(assetUpdateSchema), handle('Update 
     if (!categoryKey) return res.status(422).json({ detail: `Unknown category "${data.category}"` });
   }
   const fields = assetFields(data, categoryKey);
+  const dateProblem = assetDatesError(fields, asset);
+  if (dateProblem) return res.status(422).json({ detail: dateProblem });
   await ensureUnique(db, fields, asset.id);
   if (fields.warranty_expiry !== undefined) fields.warranty_alert_for = null;
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,10 +31,19 @@ export default function AssetFormDialog({ open, onOpenChange, asset, categories,
   const [form, setForm] = useState(() => (asset ? fromAsset(asset) : EMPTY));
   const [saving, setSaving] = useState(false);
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e?.target ? e.target.value : e }));
+  const today = format(new Date(), 'yyyy-MM-dd');
+  // Same rules as the API: no future purchase date, warranty not before the purchase
+  const purchaseError = form.purchase_date && form.purchase_date > today ? 'Purchase date cannot be in the future' : null;
+  const warrantyError = form.purchase_date && form.warranty_expiry && form.warranty_expiry < form.purchase_date
+    ? 'Warranty expiry cannot be before the purchase date' : null;
 
   const save = async () => {
     if (!form.asset_tag.trim() || !form.name.trim() || !form.category) {
       toast.error('Asset tag, name and category are required');
+      return;
+    }
+    if (purchaseError || warrantyError) {
+      toast.error(purchaseError || warrantyError);
       return;
     }
     const body = {
@@ -119,7 +129,8 @@ export default function AssetFormDialog({ open, onOpenChange, asset, categories,
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="af-pdate">Purchase date</Label>
-            <Input id="af-pdate" type="date" value={form.purchase_date} onChange={set('purchase_date')} />
+            <Input id="af-pdate" type="date" max={today} value={form.purchase_date} onChange={set('purchase_date')} aria-invalid={!!purchaseError} />
+            {purchaseError && <p className="text-xs text-red-600">{purchaseError}</p>}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="af-cost">Cost (₹)</Label>
@@ -131,7 +142,8 @@ export default function AssetFormDialog({ open, onOpenChange, asset, categories,
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="af-warranty">Warranty expiry</Label>
-            <Input id="af-warranty" type="date" value={form.warranty_expiry} onChange={set('warranty_expiry')} />
+            <Input id="af-warranty" type="date" min={form.purchase_date || undefined} value={form.warranty_expiry} onChange={set('warranty_expiry')} aria-invalid={!!warrantyError} />
+            {warrantyError && <p className="text-xs text-red-600">{warrantyError}</p>}
           </div>
           {!editing && (
             <div className="space-y-1.5">

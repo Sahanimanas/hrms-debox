@@ -86,8 +86,21 @@ function monthlyComponents(structure) {
   return { earnings, customDeductions, gross, basic, da: sumKind('da'), hra: sumKind('hra') };
 }
 
+// Earning split used when an employee only has employees.monthly_salary (same as GET /api/salary-structure)
+const DEFAULT_CTC_COMPONENTS = [
+  { name: 'Basic Pay', amount: 50, is_percentage: true, calculation_base: 'ctc', type: 'earning', order: 1 },
+  { name: 'House Rent Allowance', amount: 25, is_percentage: true, calculation_base: 'ctc', type: 'earning', order: 2 },
+  { name: 'LTA Allowance', amount: 2.5, is_percentage: true, calculation_base: 'ctc', type: 'earning', order: 3 },
+  { name: 'Other Allowance', amount: 22.5, is_percentage: true, calculation_base: 'ctc', type: 'earning', order: 4 }
+];
+
+// Every identifier a structure / revision may have been keyed by (seeded data used the row _id;
+// employees without an employee code were saved under their uuid)
 const structureKeys = (employee) =>
-  [employee.employee_id, employee.employee_code, employee.id, employeeUid(employee)].filter(Boolean);
+  [...new Set([
+    employee.employee_id, employee.employee_code, employee.id, employeeUid(employee),
+    employee._id != null ? String(employee._id) : null
+  ].filter(Boolean))];
 
 /**
  * Save a structure: replaces the current one (legacy behaviour), records a revision
@@ -145,29 +158,44 @@ async function saveStructure(db, employee, body, { effectiveFrom, reason, user }
 
 /**
  * Structure that applies to an employee in a month.
- * Returns { structure, revision_id, effective_from } or null.
+ * Order: salary revision → current salary structure → employees.monthly_salary
+ * (default CTC split), the same sources the Salary Structure / Payroll pages show.
+ * Returns { structure, revision_id, effective_from, source } or null.
  */
 async function effectiveStructure(db, employee, month) {
-  const uid = employeeUid(employee);
-  const revisions = await db.collection('salary_revisions')
-    .find({ employee_uid: uid }, { projection: { _id: 0 } })
+  const keys = structureKeys(employee);
+  const revisions = (await db.collection('salary_revisions')
+    .find({ employee_uid: { $in: keys } }, { projection: { _id: 0 } })
     .sort({ effective_from: -1, created_at: -1 })
-    .toArray();
+    .toArray())
+    // Two employees sharing a code: keep the revisions recorded for this person
+    .filter(r => !r.employee_email || !employee.email || r.employee_email === employee.email);
 
   if (revisions.length) {
     const applicable = revisions.find(r => r.effective_from <= month);
-    if (applicable) return { structure: applicable.structure, revision_id: applicable.id, effective_from: applicable.effective_from };
+    if (applicable) return { structure: applicable.structure, revision_id: applicable.id, effective_from: applicable.effective_from, source: 'revision' };
     // Every revision starts later: use what was in place before the earliest one
     const earliest = revisions[revisions.length - 1];
-    if (earliest.previous) return { structure: earliest.previous, revision_id: null, effective_from: null };
+    if (earliest.previous) return { structure: earliest.previous, revision_id: null, effective_from: null, source: 'revision' };
     return null;
   }
 
   const legacy = await db.collection('salary_structures').findOne(
-    { employee_id: { $in: structureKeys(employee) } },
+    { employee_id: { $in: keys } },
     { projection: { _id: 0 } }
   );
-  return legacy ? { structure: legacy, revision_id: null, effective_from: legacy.effective_from || null } : null;
+  if (legacy) return { structure: legacy, revision_id: null, effective_from: legacy.effective_from || null, source: 'structure' };
+
+  const monthly = Number(employee.monthly_salary) || 0;
+  if (monthly > 0) {
+    return {
+      structure: { basic_salary: monthly, components: DEFAULT_CTC_COMPONENTS.map(c => ({ ...c })) },
+      revision_id: null,
+      effective_from: null,
+      source: 'monthly_salary'
+    };
+  }
+  return null;
 }
 
 module.exports = {
@@ -176,6 +204,7 @@ module.exports = {
   saveStructure,
   effectiveStructure,
   structureKeys,
+  DEFAULT_CTC_COMPONENTS,
   currentMonth,
   STATUTORY_DEDUCTION_RE
 };

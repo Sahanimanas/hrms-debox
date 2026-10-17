@@ -544,7 +544,7 @@ router.post('/leave-policy/apply-to-all', authenticate, requireRole([UserRole.AD
       }
 
       await db.collection('employees').updateOne(
-        { id: employee.id },
+        { _id: employee._id },
         { $set: { leave_balance: newBalance } }
       );
 
@@ -595,6 +595,17 @@ router.post('/validate-application', authenticate, getCurrentEmployee, async (re
     // Day count including the sandwich rule (LV-3) — the same number apply will charge
     const days = await computeLeaveDays(db, { employee, dates, isHalfDay: body.is_half_day, policyItem });
     const keys = days.dates;
+
+    if (!keys.length) {
+      errors.push({ type: 'non_working_days', message: 'The selected dates are all weekly offs or holidays — no leave is needed', severity: 'error' });
+    } else if (days.excluded_dates.length) {
+      warnings.push({
+        type: 'non_working_days',
+        message: `${days.excluded_dates.length} weekly off/holiday day(s) in your selection are not counted`,
+        severity: 'info',
+        dates: days.excluded_dates
+      });
+    }
 
     const overlap = await findOverlap(db, employee.email, keys, {
       excludeLeaveId: body.exclude_leave_id || null,
@@ -745,6 +756,16 @@ router.post('/', authenticate, getCurrentEmployee, validate(schemas.leaveApplica
     });
     const daysCount = dayInfo.days_count;
 
+    // Sandwich rule off: weekly offs / holidays in the selection are skipped, not charged
+    if (!dayInfo.dates.length) {
+      return res.status(400).json({
+        detail: 'The selected dates are all weekly offs or holidays — no leave is needed',
+        warning_type: 'non_working_days',
+        can_override: false
+      });
+    }
+    const chargedDates = dayInfo.excluded_dates.length ? dayInfo.dates : leaveData.dates;
+
     // A date can only be on one active leave
     const overlap = await findOverlap(db, employee.email, dayInfo.dates, {
       isHalfDay: leaveData.is_half_day,
@@ -766,7 +787,7 @@ router.post('/', authenticate, getCurrentEmployee, validate(schemas.leaveApplica
 
     // Validate advance notice (soft warning - allow override with force flag)
     if (policyItem && policyItem.advance_days_required > 0 && !req.body.force_submit) {
-      const advanceCheck = validateAdvanceNotice(leaveData.dates, policyItem.advance_days_required);
+      const advanceCheck = validateAdvanceNotice(chargedDates, policyItem.advance_days_required);
       if (!advanceCheck.valid) {
         return res.status(400).json({
           detail: advanceCheck.message,
@@ -777,7 +798,7 @@ router.post('/', authenticate, getCurrentEmployee, validate(schemas.leaveApplica
     }
 
     // Validate clubbing rules (hard error - cannot override)
-    const clubbingCheck = await validateLeaveClubbing(db, employee.email, leaveData.leave_type, leaveData.dates);
+    const clubbingCheck = await validateLeaveClubbing(db, employee.email, leaveData.leave_type, chargedDates);
     if (!clubbingCheck.valid) {
       return res.status(400).json({
         detail: clubbingCheck.message,
@@ -816,7 +837,7 @@ router.post('/', authenticate, getCurrentEmployee, validate(schemas.leaveApplica
       department: employee.department || null,
       manager_email: employee.manager_email || managerStep?.approver_email || null,
       leave_type: leaveData.leave_type,
-      dates: datesToISOStrings(leaveData.dates),
+      dates: datesToISOStrings(chargedDates),
       days_count: daysCount,
       applied_days: dayInfo.applied_days,
       sandwich_days: dayInfo.sandwich_days,
@@ -848,7 +869,7 @@ router.post('/', authenticate, getCurrentEmployee, validate(schemas.leaveApplica
 
     // Notify whoever approves first (and their delegates), plus email — don't block the response
     const firstStep = approvalsService.currentStep(chain);
-    const datesDisplay = formatDatesForDisplay(leaveData.dates);
+    const datesDisplay = formatDatesForDisplay(chargedDates);
     (async () => {
       await approvalsService.notifyApprovers(db, leaveDoc, firstStep, {
         title: 'New Leave Application',
@@ -1200,6 +1221,11 @@ router.put('/:leaveId/action', authenticate, getCurrentEmployee, validate(schema
       return res.status(403).json({ detail: 'Not enough permissions' });
     }
 
+    // The employee is told why: a rejection must carry a reason
+    if (action === 'reject' && !String(comments || '').trim()) {
+      return res.status(400).json({ detail: 'A reason is required to reject a leave' });
+    }
+
     const leaveDoc = await db.collection('leaves').findOne(
       { id: leaveId },
       { projection: { _id: 0 } }
@@ -1435,6 +1461,9 @@ router.put('/:leaveId', authenticate, requireRole([UserRole.ADMIN]), validate(sc
       const editedPolicyItem = await getLeavePolicyForType(db, editedLeaveType);
       const newDates = editData.dates ? editData.dates : originalLeave.dates;
       const dayInfo = await computeLeaveDays(db, { employee: owner, dates: newDates, isHalfDay, policyItem: editedPolicyItem });
+      if (!dayInfo.dates.length) {
+        return res.status(400).json({ detail: 'The selected dates are all weekly offs or holidays — no leave is needed' });
+      }
 
       if (editData.dates) {
         const overlap = await findOverlap(db, originalLeave.employee_email, dayInfo.dates, {
@@ -1451,7 +1480,7 @@ router.put('/:leaveId', authenticate, requireRole([UserRole.ADMIN]), validate(sc
         return res.status(typeRule.status).json({ detail: typeRule.detail });
       }
 
-      if (editData.dates) updateDict.dates = datesToISOStrings(editData.dates);
+      if (editData.dates) updateDict.dates = datesToISOStrings(dayInfo.excluded_dates.length ? dayInfo.dates : editData.dates);
       newDays = dayInfo.days_count;
       updateDict.days_count = newDays;
       updateDict.applied_days = dayInfo.applied_days;

@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import api from '@/lib/api';
 import { API, errMsg } from '../lib';
 import { NativeSelect } from './ui';
+import { employeeLabel } from '@/lib/employeeLabel';
 
 const ACCEPT = '.pdf,.jpg,.jpeg,.png,.webp,.doc,.docx';
 const MAX = 10 * 1024 * 1024;
@@ -75,7 +76,7 @@ const DocumentUploadDialog = ({ open, onOpenChange, onUploaded, employees = null
               <Label>Employee</Label>
               <NativeSelect value={form.employee_uid} onChange={(v) => setForm({ ...form, employee_uid: v })}>
                 <option value="">Select employee…</option>
-                {employees.map(e => <option key={e.id} value={e.id}>{e.full_name} ({e.id})</option>)}
+                {employees.map(e => <option key={e.id} value={e.id}>{employeeLabel(e.full_name, e.employee_id)}</option>)}
               </NativeSelect>
             </div>
           )}

@@ -36,6 +36,12 @@ function normalizeLeaveTypeKey(leaveType) {
   return leaveType.toLowerCase().replace(/\s+/g, '_');
 }
 
+/** 'MMM dd' for a leave date; a bad value renders a dash instead of throwing. */
+function fmtDay(value) {
+  const d = new Date(value);
+  return isNaN(d) ? '—' : format(d, 'MMM dd');
+}
+
 const SalaryStructurePage = () => {
   const [employees, setEmployees] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -136,7 +142,14 @@ const SalaryStructurePage = () => {
   const fetchEmployees = async () => {
     try {
       const response = await api.get('/employees');
-      setEmployees(response.data);
+      const list = Array.isArray(response.data) ? response.data : [];
+      // One unique, always-present key per employee: the employee code when it is unique,
+      // otherwise the email (codes can be missing or shared; the API resolves either)
+      const codeCount = {};
+      list.forEach(e => { if (e.employee_id) codeCount[e.employee_id] = (codeCount[e.employee_id] || 0) + 1; });
+      setEmployees(list
+        .map(e => ({ ...e, id: e.employee_id && codeCount[e.employee_id] === 1 ? e.employee_id : (e.email || e.id || e.employee_id) }))
+        .filter(e => e.id));
     } catch {
       toast.error('Failed to load employees');
     }
@@ -298,7 +311,7 @@ const SalaryStructurePage = () => {
     fetchLeaveBalance(empData);
 
     try {
-      const response = await api.get(`/salary-structure/${empId}`);
+      const response = await api.get(`/salary-structure/${encodeURIComponent(empId)}`);
       if (response.data) {
         const components = response.data.components || [];
         const earningComponents = components.filter(c => c.type === 'earning');
@@ -458,7 +471,7 @@ const SalaryStructurePage = () => {
 
     setSaving(true);
     try {
-      await api.post(`/salary-structure/${selectedEmployee}`, {
+      await api.post(`/salary-structure/${encodeURIComponent(selectedEmployee)}`, {
         ...salaryStructure,
         effective_from: effectiveFrom || undefined,
         revision_reason: revisionReason.trim() || undefined
@@ -521,7 +534,7 @@ const SalaryStructurePage = () => {
       const results = await Promise.all(
         employees.map(async (emp) => {
           try {
-            const res = await api.get(`/salary-structure/${emp.employee_id || emp.id}`);
+            const res = await api.get(`/salary-structure/${encodeURIComponent(emp.id)}`);
             const structure = res.data;
             const hasSavedStructure = structure && structure.components && structure.components.length > 0 && structure.basic_salary > 0;
 
@@ -573,7 +586,7 @@ const SalaryStructurePage = () => {
   };
 
   const handleBulkSendSingle = async (empData) => {
-    const empId = empData.employee.employee_id || empData.employee.id;
+    const empId = empData.employee.id;
     setBulkSendingIds(prev => new Set([...prev, empId]));
 
     try {
@@ -601,7 +614,7 @@ const SalaryStructurePage = () => {
 
   const handleBulkSendAll = async () => {
     const eligibleEmployees = bulkEmployeeData.filter(d => {
-      const empId = d.employee.employee_id || d.employee.id;
+      const empId = d.employee.id;
       return d.hasSavedStructure && !bulkSentIds.has(empId);
     });
 
@@ -615,7 +628,7 @@ const SalaryStructurePage = () => {
     let failCount = 0;
 
     for (const empData of eligibleEmployees) {
-      const empId = empData.employee.employee_id || empData.employee.id;
+      const empId = empData.employee.id;
       setBulkSendingIds(prev => new Set([...prev, empId]));
 
       try {
@@ -760,7 +773,7 @@ const SalaryStructurePage = () => {
                               {emp.full_name?.charAt(0)}
                             </div>
                             <span>{emp.full_name}</span>
-                            <span className="text-slate-400 text-sm">({emp.employee_id || emp.id.slice(0, 8)})</span>
+                            <span className="text-slate-400 text-sm">({emp.employee_id || 'No code'})</span>
                           </div>
                         </SelectItem>
                       ))}
@@ -936,7 +949,7 @@ const SalaryStructurePage = () => {
                                     <div className="flex flex-wrap gap-1.5">
                                       {leave.dates?.map((date, i) => (
                                         <span key={i} className="px-2.5 py-1 bg-amber-100 text-amber-700 rounded-lg text-xs font-medium">
-                                          {format(new Date(date), 'MMM dd')}
+                                          {fmtDay(date)}
                                         </span>
                                       ))}
                                     </div>
@@ -1557,7 +1570,7 @@ const SalaryStructurePage = () => {
                                   <div className="flex flex-wrap gap-1 mb-2">
                                     {(leave.dates || []).slice(0, 5).map((date, i) => (
                                       <span key={i} className="px-2 py-0.5 bg-white/80 text-slate-600 rounded-md text-xs font-medium border border-slate-200">
-                                        {format(new Date(date), 'MMM dd')}
+                                        {fmtDay(date)}
                                       </span>
                                     ))}
                                     {(leave.dates || []).length > 5 && (
@@ -1691,7 +1704,7 @@ const SalaryStructurePage = () => {
                   </div>
                   <Button
                     onClick={handleBulkSendAll}
-                    disabled={sendingAll || bulkEmployeeData.filter(d => d.hasSavedStructure && !bulkSentIds.has(d.employee.employee_id || d.employee.id)).length === 0}
+                    disabled={sendingAll || bulkEmployeeData.filter(d => d.hasSavedStructure && !bulkSentIds.has(d.employee.id)).length === 0}
                     className="bg-slate-900 hover:bg-slate-800 font-semibold shadow-md"
                   >
                     {sendingAll ? (
@@ -1711,7 +1724,7 @@ const SalaryStructurePage = () => {
                 {/* Employee List */}
                 <div className="overflow-y-auto flex-1 space-y-2 pr-1 -mr-1">
                   {bulkEmployeeData.map((empData) => {
-                    const empId = empData.employee.employee_id || empData.employee.id;
+                    const empId = empData.employee.id;
                     const isSending = bulkSendingIds.has(empId);
                     const isSent = bulkSentIds.has(empId);
                     const isDisabled = !empData.hasSavedStructure || isSending || sendingAll;

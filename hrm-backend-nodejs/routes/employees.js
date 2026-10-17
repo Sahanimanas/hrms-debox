@@ -9,6 +9,7 @@ const { sendEmailNotification } = require('../services/emailService');
 const { generateWelcomeEmail, generateNewEmployeeNotificationEmail } = require('../utils/emailTemplates');
 const Joi = require('joi');
 const lifecycleHooks = require('../services/lifecycle/hooks');
+const { allocateEmployeeCode, isDuplicateCodeError, migrateReferences } = require('../services/employeeIdentity');
 
 // Lifecycle (Phase 3) additions to the create payload: personal details,
 // probation length and onboarding options. Unknown keys are still stripped.
@@ -44,21 +45,6 @@ async function resolveEmployeeRef(db, ref) {
   return employees.findOne({ id: ref }, { projection: { _id: 0 } });
 }
 
-/**
- * Atomically increment the employee ID counter and return the settings
- * document after the increment (driver v6 returns the document directly;
- * older drivers wrapped it in { value }). Counter starts at 1000 if unset.
- */
-async function nextEmployeeCounter(db) {
-  const result = await db.collection('settings').findOneAndUpdate(
-    {},
-    [{ $set: { employee_id_counter: { $add: [{ $ifNull: ['$employee_id_counter', 1000] }, 1] } } }],
-    { returnDocument: 'after' }
-  );
-  const doc = result && result.value !== undefined && result.employee_id_counter === undefined ? result.value : result;
-  if (!doc) throw new Error('System settings not initialized');
-  return doc;
-}
 
 /**
  * Default monthly credit rates for leave types
@@ -243,6 +229,8 @@ router.get('/', authenticate, requireRole([UserRole.ADMIN, UserRole.MANAGER]), a
         emp.created_at = new Date(emp.created_at);
       }
       emp.id = emp.employee_id || emp.id || emp.email;
+      // Display code: legacy seeded rows only have employee_code ('' when none, never undefined)
+      emp.employee_id = emp.employee_id || emp.employee_code || '';
 
       // Ensure comp_off exists in leave_balance
       if (emp.leave_balance && !('comp_off' in emp.leave_balance)) {
@@ -273,26 +261,18 @@ router.post('/', authenticate, requireRole([UserRole.ADMIN]), validate(employeeC
       return res.status(400).json({ detail: 'User with this email already exists' });
     }
 
-    // ============================================
-    // ATOMIC COUNTER INCREMENT
-    // MongoDB driver v6: findOneAndUpdate resolves to the document itself.
-    // Keep incrementing until we land on an ID nobody has (the counter may
-    // have been reset below IDs that already exist).
-    // ============================================
+    // Atomic counter increment; codes already used as employee_id, legacy
+    // employee_code or a user's employee_id are skipped (the counter may have
+    // been reset below existing codes). The unique index is the final guard.
     const existingSettings = await db.collection('settings').findOne({});
     if (!existingSettings) {
       return res.status(500).json({ detail: 'System settings not initialized' });
     }
-    let employeeId = null;
-    for (let attempt = 0; attempt < 1000 && !employeeId; attempt++) {
-      const settings = await nextEmployeeCounter(db);
-      const candidate = `${settings.employee_id_prefix || 'EMP'}${String(settings.employee_id_counter).padStart(4, '0')}`;
-      const taken = await db.collection('employees').findOne({ employee_id: candidate }, { projection: { _id: 1 } })
-        || await db.collection('users').findOne({ employee_id: candidate }, { projection: { _id: 1 } });
-      if (!taken) employeeId = candidate;
-    }
-    if (!employeeId) {
-      return res.status(500).json({ detail: 'Could not allocate a unique employee ID' });
+    let employeeId;
+    try {
+      employeeId = await allocateEmployeeCode(db);
+    } catch (error) {
+      return res.status(500).json({ detail: error.message });
     }
 
     const employeeUuid = generateUUID();
@@ -379,7 +359,22 @@ router.post('/', authenticate, requireRole([UserRole.ADMIN]), validate(employeeC
       created_at: now
     };
 
-    await db.collection('employees').insertOne(employeeDoc);
+    // A code taken between allocation and insert hits the unique index: take the next one
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await db.collection('employees').insertOne(employeeDoc);
+        break;
+      } catch (error) {
+        if (!isDuplicateCodeError(error) || attempt >= 5) {
+          await db.collection('users').deleteOne({ email: employeeData.email });
+          throw error;
+        }
+        delete employeeDoc._id;
+        employeeId = await allocateEmployeeCode(db);
+        employeeDoc.employee_id = employeeId;
+        await db.collection('users').updateOne({ email: employeeData.email }, { $set: { employee_id: employeeId } });
+      }
+    }
 
     // Lifecycle: probation dates, "joined" job-history entry, onboarding checklist
     const lifecycleFields = await lifecycleHooks.onEmployeeCreated(db, employeeDoc, req.user, {
@@ -659,28 +654,17 @@ router.put('/:userId/leave-balance', authenticate, requireRole([UserRole.ADMIN])
     const { userId } = req.params;
     const { leave_type, reason, adjustment_type, days } = req.validatedBody;
 
-    // Find user - try by id first, then employee_id
-    let user = await db.collection('users').findOne(
-      { id: userId },
-      { projection: { _id: 0 } }
-    );
-
-    if (!user) {
-      user = await db.collection('users').findOne(
-        { employee_id: userId },
-        { projection: { _id: 0 } }
+    // Employee by email / employee code / uuid (seeded employees may have no code — the
+    // list sends their email as id), else via the users collection id
+    let employee = await require('../services/lifecycle/common').findEmployeeByUid(db, userId);
+    if (!employee) {
+      const user = await db.collection('users').findOne(
+        { $or: [{ id: userId }, { employee_id: userId }] },
+        { projection: { _id: 0, email: 1 } }
       );
+      if (user) employee = await db.collection('employees').findOne({ email: user.email });
     }
-
-    if (!user) {
-      return res.status(404).json({ detail: 'User not found' });
-    }
-
-    // Find employee by email
-    const employee = await db.collection('employees').findOne(
-      { email: user.email },
-      { projection: { _id: 0 } }
-    );
+    if (employee) delete employee._id;
     if (!employee) {
       return res.status(404).json({ detail: 'Employee not found' });
     }
@@ -713,6 +697,12 @@ router.put('/:userId/leave-balance', authenticate, requireRole([UserRole.ADMIN])
       newBalance = Math.round((currentBalance - days) * 100) / 100;
     } else if (adjustment_type === 'add') {
       newBalance = Math.round((currentBalance + days) * 100) / 100;
+      // Never above the yearly quota plus days carried forward into this year
+      const { getPolicyDoc, findPolicyItem, balanceCap } = require('../services/leave/common');
+      const cap = balanceCap(employee, findPolicyItem(await getPolicyDoc(db), leaveKey), leaveKey);
+      if (cap != null && newBalance > cap) {
+        return res.status(400).json({ detail: `${leave_type} balance can be at most ${cap} days (yearly quota plus carry-forward)` });
+      }
     } else {
       return res.status(400).json({ detail: "Invalid adjustment type (must be 'add' or 'deduct')" });
     }
@@ -890,22 +880,17 @@ router.post('/fix-duplicate/:employeeId', authenticate, requireRole([UserRole.AD
     }
 
     // Generate new employee ID
-    let newEmployeeId = null;
-    for (let attempt = 0; attempt < 1000 && !newEmployeeId; attempt++) {
-      const settings = await nextEmployeeCounter(db);
-      const candidate = `${settings.employee_id_prefix || 'EMP'}${String(settings.employee_id_counter).padStart(4, '0')}`;
-      if (!(await db.collection('employees').findOne({ employee_id: candidate }, { projection: { _id: 1 } }))) {
-        newEmployeeId = candidate;
-      }
-    }
-    if (!newEmployeeId) {
-      return res.status(500).json({ detail: 'Could not allocate a unique employee ID' });
+    let newEmployeeId;
+    try {
+      newEmployeeId = await allocateEmployeeCode(db);
+    } catch (error) {
+      return res.status(500).json({ detail: error.message });
     }
 
-    // Update employee
+    // Update employee (the uuid id stays: other records reference it)
     await db.collection('employees').updateOne(
       { email },
-      { $set: { employee_id: newEmployeeId, id: newEmployeeId } }
+      { $set: { employee_id: newEmployeeId } }
     );
 
     // Update user
@@ -913,6 +898,9 @@ router.post('/fix-duplicate/:employeeId', authenticate, requireRole([UserRole.AD
       { email },
       { $set: { employee_id: newEmployeeId } }
     );
+
+    // Records keyed by the shared code that name this employee by email follow it
+    await migrateReferences(db, [{ email, code: newEmployeeId, aliases: [], sharedCode: employeeId }]);
 
     res.json({
       message: 'Employee ID fixed successfully',
@@ -1063,7 +1051,7 @@ router.post('/recalculate-all-balances', authenticate, requireRole([UserRole.ADM
       newBalance.comp_off = employee.leave_balance?.comp_off || 0;
 
       await db.collection('employees').updateOne(
-        { id: employee.id },
+        { _id: employee._id },
         { $set: { leave_balance: newBalance } }
       );
 

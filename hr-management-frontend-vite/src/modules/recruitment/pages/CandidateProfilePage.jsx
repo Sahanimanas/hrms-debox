@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft, UserRound, Mail, Phone, Linkedin, FileText, Download, Upload, CalendarPlus, CalendarClock, Handshake,
-  MessageSquarePlus, Trash2, Video, MapPin, PhoneCall, Pencil, XCircle, Send, FileDown, UserCheck, ExternalLink, Tag, History,
+  MessageSquarePlus, Trash2, Video, MapPin, PhoneCall, Pencil, XCircle, Send, FileDown, UserCheck, ExternalLink, Tag, History, CheckCircle2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -165,11 +165,12 @@ export default function CandidateProfilePage() {
   const offerAction = async (offer, action) => {
     try {
       if (action === 'send') await api.post(`${API}/offers/${offer.id}/send`);
+      if (action === 'approve') await api.post(`${API}/offers/${offer.id}/approve`);
       if (action === 'discard') {
         if (!window.confirm('Discard this draft offer?')) return;
         await api.delete(`${API}/offers/${offer.id}`);
       }
-      toast.success(action === 'send' ? 'Offer marked as sent' : 'Draft discarded');
+      toast.success(action === 'send' ? 'Offer marked as sent' : action === 'approve' ? 'Offer approved' : 'Draft discarded');
       reload();
     } catch (e) {
       toast.error(errorMessage(e));
@@ -447,7 +448,16 @@ export default function CandidateProfilePage() {
                   <Card key={o.id} className="border-0 shadow-md">
                     <CardContent className="p-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                       <div>
-                        <p className="font-medium text-slate-900">{o.designation} · {o.department} <StatusBadge status={o.status} /></p>
+                        <p className="font-medium text-slate-900">
+                          {o.designation} · {o.department} <StatusBadge status={o.status} />
+                          {o.requires_approval && o.status === 'draft' && <StatusBadge status="pending" text="Needs approval" />}
+                        </p>
+                        {o.out_of_band && (
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            Outside the salary band
+                            {o.band_approved_by_name ? ` · approved by ${o.band_approved_by_name}` : ' · an admin must approve it before it is sent'}
+                          </p>
+                        )}
                         <p className="text-sm text-slate-600 mt-0.5">{fmtInr(o.ctc)} per year · joining {fmtDate(o.joining_date)} · valid until {fmtDate(o.expiry_date)}</p>
                         {o.employee_code && <p className="text-xs text-emerald-700 mt-1 flex items-center gap-1"><UserCheck className="w-3.5 h-3.5" /> Converted to employee {o.employee_code}</p>}
                         {o.response_note && <p className="text-xs text-slate-500 mt-1">Note: {o.response_note}</p>}
@@ -457,7 +467,9 @@ export default function CandidateProfilePage() {
                         {isAdmin && o.status === 'draft' && (
                           <>
                             <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => setOfferDialog({ open: true, offer: o })}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
-                            <Button size="sm" className="h-8 gap-1" onClick={() => offerAction(o, 'send')}><Send className="w-3.5 h-3.5" /> Mark sent</Button>
+                            {o.requires_approval
+                              ? <Button size="sm" className="h-8 gap-1" onClick={() => offerAction(o, 'approve')}><CheckCircle2 className="w-3.5 h-3.5" /> Approve CTC</Button>
+                              : <Button size="sm" className="h-8 gap-1" onClick={() => offerAction(o, 'send')}><Send className="w-3.5 h-3.5" /> Mark sent</Button>}
                             <Button size="sm" variant="ghost" className="h-8 text-red-600" onClick={() => offerAction(o, 'discard')} aria-label="Discard draft"><Trash2 className="w-3.5 h-3.5" /></Button>
                           </>
                         )}

@@ -126,6 +126,8 @@ async function creditMonthlyLeaves(db, creditDate = new Date(), options = {}) {
   }
 
   const extraTypes = await loadExtraPolicyTypes(db);
+  const { getPolicyDoc, balanceCap } = require('../services/leave/common');
+  const policyItems = ((await getPolicyDoc(db)).policies || []).map(p => ({ ...p, key: normalizeLeaveType(p.leave_type) }));
 
   // Get all active employees
   const employees = await db.collection('employees').find({
@@ -221,6 +223,16 @@ async function creditMonthlyLeaves(db, creditDate = new Date(), options = {}) {
           const max = Number(p.annual_quota) > 0 ? Number(p.annual_quota) : Number(p.monthly_credit) * 12;
           newBalance[p.key] = round1(Math.min(current + Number(p.monthly_credit), capFor(p.key, max)));
           credits.push(`${p.key}: ${current} + ${p.monthly_credit} = ${newBalance[p.key]}`);
+        }
+      }
+
+      // Never above the yearly quota plus carried-forward days (also pulls back
+      // balances that were over-credited earlier, e.g. hard-coded opening balances)
+      for (const p of policyItems) {
+        const cap = balanceCap(employee, p, p.key, currentYear);
+        if (cap != null && Number(newBalance[p.key]) > cap) {
+          credits.push(`${p.key}: ${newBalance[p.key]} capped at ${cap}`);
+          newBalance[p.key] = cap;
         }
       }
 

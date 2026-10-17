@@ -12,6 +12,8 @@ const { PgDocClient } = require('../db/pgdoc');
 const { v4: uuidv4 } = require('uuid');
 const { connectDB, getDB, closeDB } = require('../config/database');
 const { isSetupCompleted, markSetupCompleted, ROOT_DIR } = require('../config/config');
+const { defaultLeavePolicy } = require('../models/schemas');
+const { openingBalance } = require('../services/leave/common');
 
 /**
  * GET /api/setup/status
@@ -143,12 +145,8 @@ router.post('/configure', async (req, res) => {
       joining_date: now.toISOString(),
       manager_email: null,
       manager_name: null,
-      leave_balance: {
-        sick_leave: 10.0,
-        casual_leave: 15.0,
-        paid_leave: 20.0,
-        unpaid_leave: 0.0
-      },
+      // Opening balance from the default leave policy (no policy is saved yet at setup)
+      leave_balance: openingBalance(defaultLeavePolicy),
       created_at: now.toISOString()
     };
     await db.collection('employees').insertOne(adminEmployee);

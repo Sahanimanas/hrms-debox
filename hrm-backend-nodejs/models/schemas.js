@@ -195,13 +195,13 @@ const schemas = {
 
   // Organization
   organizationCreate: Joi.object({
-    name: Joi.string().required(),
+    name: Joi.string().trim().min(1).max(200).required(),
     logo_url: Joi.string().allow(null, ''),
     description: Joi.string().allow(null, '')
   }),
 
   organizationUpdate: Joi.object({
-    name: Joi.string(),
+    name: Joi.string().trim().min(1).max(200),
     logo_url: Joi.string().allow(null, ''),
     description: Joi.string().allow(null, '')
   }),

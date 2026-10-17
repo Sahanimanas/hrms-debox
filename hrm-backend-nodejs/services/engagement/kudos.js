@@ -14,7 +14,7 @@ const { validate } = require('../../middleware/roleCheck');
 const { generateUUID, localParts } = require('../../utils/helpers');
 const { emitEvent } = require('../events');
 const {
-  handle, validateQuery, getViewer, ACTIVE_EMPLOYEE, notifyPeople, getSettings, monthRange
+  handle, validateQuery, getViewer, notifyPeople, getSettings, monthRange, personKey, findPeopleByKeys
 } = require('./common');
 
 const router = express.Router();
@@ -134,10 +134,10 @@ router.post('/', validate(createSchema), handle('Send kudos', async (req, res) =
   const value = settings.kudos_values.find(v => v.toLowerCase() === data.value.toLowerCase());
   if (!value) return res.status(400).json({ detail: `Pick one of: ${settings.kudos_values.join(', ')}` });
 
-  const recipients = await db.collection('employees')
-    .find({ id: { $in: data.recipient_ids }, ...ACTIVE_EMPLOYEE }, { projection: { _id: 0, id: 1, email: 1, full_name: 1, department: 1 } })
-    .toArray();
-  if (recipients.some(r => r.email === viewer.email) || (viewer.employee && data.recipient_ids.includes(viewer.employee.id))) {
+  // recipient_ids are directory keys: uuid id, or the employee code for legacy rows without one
+  const recipients = (await findPeopleByKeys(db, data.recipient_ids))
+    .map(r => ({ id: personKey(r), email: r.email, full_name: r.full_name, department: r.department }));
+  if (recipients.some(r => r.email === viewer.email) || (viewer.employee && data.recipient_ids.includes(personKey(viewer.employee)))) {
     return res.status(400).json({ detail: "You can't send kudos to yourself" });
   }
   if (recipients.length !== data.recipient_ids.length) return res.status(400).json({ detail: 'One or more colleagues were not found' });

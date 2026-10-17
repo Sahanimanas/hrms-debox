@@ -1,7 +1,12 @@
 // Shared helpers for the leave pages (module pages and the original leave pages).
 import { format } from 'date-fns';
 
-export const leaveKey = (name) => String(name || '').toLowerCase().replace(/ /g, '_');
+// Same rule as the backend normalizeLeaveType: "Comp Off" / "Comp-Off" / "CompOff" are all comp_off
+export const leaveKey = (name) => {
+  const key = String(name || '').toLowerCase().replace(/ /g, '_');
+  return /^comp[\s_-]*off$/.test(key.trim()) ? 'comp_off' : key;
+};
+export const isCompOffKey = (name) => leaveKey(name) === 'comp_off';
 
 // Calendar day of a stored leave date. The API stores UTC midnight for a picked day.
 export const toDateKey = (value) => {

@@ -25,6 +25,14 @@ const toMinutes = (hours) => {
   const n = parseFloat(hours);
   return Number.isFinite(n) && n > 0 ? Math.round(n * 60) : 0;
 };
+// Why a typed hours value can't be saved, or null when it's fine (empty counts as 0)
+const hoursError = (hours) => {
+  if (hours === undefined || hours === null || hours === '') return null;
+  if (/^\s*-/.test(hours)) return 'Hours cannot be negative';
+  if (!/^\d*\.?\d*$/.test(hours) || !Number.isFinite(parseFloat(hours))) return 'Enter hours as a number, e.g. 7.5';
+  if (parseFloat(hours) > 24) return 'A day has at most 24 hours';
+  return null;
+};
 
 const STATUS_STYLE = {
   draft: 'bg-slate-100 text-slate-700',
@@ -33,8 +41,11 @@ const STATUS_STYLE = {
   rejected: 'bg-red-100 text-red-700',
 };
 
+// The API stores a sent-back week as 'rejected'; people see "Sent back"
+const STATUS_LABEL = { draft: 'Draft', submitted: 'Submitted', approved: 'Approved', rejected: 'Sent back' };
+
 const StatusBadge = ({ status }) => (
-  <Badge className={`${STATUS_STYLE[status] || STATUS_STYLE.draft} hover:opacity-90 capitalize`}>{status}</Badge>
+  <Badge className={`${STATUS_STYLE[status] || STATUS_STYLE.draft} hover:opacity-90`}>{STATUS_LABEL[status] || status}</Badge>
 );
 
 // ---------------------------------------------------------------- My week
@@ -86,6 +97,8 @@ const MyWeek = ({ projects }) => {
 
   const save = async () => {
     if (rows.some(r => !r.project_id)) return toast.error('Pick a project for every row');
+    const badCell = rows.flatMap(r => dates.map(d => [d, hoursError(r.hours[d])])).find(([, err]) => err);
+    if (badCell) return toast.error(`${format(parseISO(badCell[0]), 'EEE dd MMM')}: ${badCell[1]}`);
     setBusy(true);
     try {
       const payload = {
@@ -101,7 +114,7 @@ const MyWeek = ({ projects }) => {
       await load();
       return true;
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save');
+      toast.error(error.response?.data?.errors?.[0]?.message || error.response?.data?.detail || 'Failed to save');
       return false;
     } finally {
       setBusy(false);
@@ -198,18 +211,24 @@ const MyWeek = ({ projects }) => {
                     <td className="px-3 py-2">
                       <Input className="h-9" value={row.task} disabled={!editable} placeholder="What you worked on" onChange={(e) => updateRow(i, { task: e.target.value })} />
                     </td>
-                    {dates.map(d => (
-                      <td key={d} className="px-1 py-2">
-                        <Input
-                          className="h-9 text-center px-1"
-                          inputMode="decimal"
-                          value={row.hours[d] || ''}
-                          disabled={!editable}
-                          aria-label={`Hours on ${d}`}
-                          onChange={(e) => updateRow(i, { hours: { ...row.hours, [d]: e.target.value.replace(/[^0-9.]/g, '') } })}
-                        />
-                      </td>
-                    ))}
+                    {dates.map(d => {
+                      const err = hoursError(row.hours[d]);
+                      return (
+                        <td key={d} className="px-1 py-2">
+                          <Input
+                            className={`h-9 text-center px-1 ${err ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
+                            inputMode="decimal"
+                            value={row.hours[d] || ''}
+                            disabled={!editable}
+                            aria-label={`Hours on ${d}`}
+                            aria-invalid={!!err}
+                            title={err || undefined}
+                            // Keep a typed minus sign so it can be flagged instead of silently dropped
+                            onChange={(e) => updateRow(i, { hours: { ...row.hours, [d]: e.target.value.replace(/[^0-9.-]/g, '') } })}
+                          />
+                        </td>
+                      );
+                    })}
                     <td className="px-3 py-2 text-right font-medium whitespace-nowrap">{fmtMinutes(rowTotal)}</td>
                     <td className="px-1 py-2">
                       {editable && (
@@ -243,6 +262,9 @@ const MyWeek = ({ projects }) => {
           </table>
         </CardContent>
       </Card>
+      {rows.some(r => dates.some(d => hoursError(r.hours[d]))) && (
+        <p className="text-xs text-red-600">Some cells are invalid (highlighted in red): {rows.flatMap(r => dates.map(d => hoursError(r.hours[d]))).find(Boolean)}</p>
+      )}
       <p className="text-xs text-slate-500">Enter hours as decimals (7.5 = 7h 30m). Save as you go; submit at the end of the week.</p>
     </div>
   );
@@ -251,6 +273,7 @@ const MyWeek = ({ projects }) => {
 // ---------------------------------------------------------------- Approvals
 
 const Approvals = () => {
+  const { user } = getAuth();
   const [status, setStatus] = useState('submitted');
   const [sheets, setSheets] = useState([]);
   const [acting, setActing] = useState(null);
@@ -313,7 +336,10 @@ const Approvals = () => {
                     </p>
                     <p className="text-xs text-slate-500 mt-0.5">{s.by_project.map(p => `${p.project} ${fmtMinutes(p.minutes)}`).join(' · ')}</p>
                   </div>
-                  {s.status === 'submitted' && (
+                  {s.status === 'submitted' && s.user_email === user?.email && (
+                    <p className="text-xs text-slate-500 shrink-0">Your own timesheet: another approver must act on it</p>
+                  )}
+                  {s.status === 'submitted' && s.user_email !== user?.email && (
                     <div className="flex gap-2 shrink-0">
                       <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 gap-1" onClick={() => setActing({ sheet: s, action: 'reject' })}>
                         <XCircle className="w-4 h-4" /> Send back

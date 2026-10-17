@@ -9,6 +9,13 @@ import api from '@/lib/api';
 import { getAuth } from '@/lib/auth';
 import { exportCsv } from '@/lib/exportCsv';
 
+// Grid row key: the unique internal id from the API (never the employee code,
+// which legacy data may share between two people)
+const rowId = (employee) => employee.uid || employee.employee_id;
+
+const localYmd = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 const AttendancePage = () => {
   const { user } = getAuth();
   const [loading, setLoading] = useState(true);
@@ -20,6 +27,7 @@ const AttendancePage = () => {
   const [pendingChanges, setPendingChanges] = useState({});
   const [downloading, setDownloading] = useState(false);
   const [holidays, setHolidays] = useState({});  // Map of day -> holiday info
+  const [today, setToday] = useState(localYmd());  // company-timezone date from the API
 
   const months = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -44,6 +52,7 @@ const AttendancePage = () => {
       });
       setEmployees(response.data.employees);
       setDaysInMonth(response.data.daysInMonth);
+      if (response.data.today) setToday(response.data.today);
       setPendingChanges({});
 
       // Create holiday map from response
@@ -95,8 +104,14 @@ const AttendancePage = () => {
     return holidays[day] || null;
   };
 
+  const dateOf = (day) => `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  // Attendance can't be marked ahead of today (the API rejects it too)
+  const isFutureDay = (day) => dateOf(day) > today;
+
   const handleCellClick = (employeeId, day) => {
     if (user?.role !== 'admin') return;
+    if (isFutureDay(day)) return;
 
     // Don't allow marking attendance on holidays
     if (isHoliday(day)) {
@@ -106,7 +121,7 @@ const AttendancePage = () => {
     }
 
     const key = `${employeeId}-${day}`;
-    const employee = employees.find(e => e.employee_id === employeeId);
+    const employee = employees.find(e => rowId(e) === employeeId);
     const currentStatus = pendingChanges[key]?.status ?? employee?.attendance?.[day] ?? '';
 
     // Cycle through statuses (without holiday and weekend)
@@ -118,7 +133,7 @@ const AttendancePage = () => {
       ...prev,
       [key]: {
         employee_id: employeeId,
-        date: `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+        date: dateOf(day),
         status: nextStatus
       }
     }));
@@ -155,7 +170,12 @@ const AttendancePage = () => {
       return;
     }
 
-    const date = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    if (isFutureDay(day)) {
+      toast.info('Attendance cannot be marked for a future date');
+      return;
+    }
+
+    const date = dateOf(day);
 
     try {
       await api.post('/attendance/mark-column', { date, status });
@@ -197,7 +217,7 @@ const AttendancePage = () => {
   };
 
   const getCellStatus = (employee, day) => {
-    const key = `${employee.employee_id}-${day}`;
+    const key = `${rowId(employee)}-${day}`;
     if (pendingChanges[key]) {
       return pendingChanges[key].status;
     }
@@ -321,7 +341,7 @@ const AttendancePage = () => {
                   value: (e) => getCellStatus(e, day),
                 }));
                 exportCsv(`attendance-${selectedYear}-${String(selectedMonth).padStart(2, '0')}.csv`, employees, [
-                  { key: 'employee_id', label: 'Employee ID' },
+                  { label: 'Employee ID', value: (e) => e.employee_code ?? e.employee_id },
                   { key: 'full_name', label: 'Name' },
                   { key: 'department', label: 'Department' },
                   ...dayCols,
@@ -446,8 +466,8 @@ const AttendancePage = () => {
                           className={`px-1 py-1 text-center border-r border-slate-100 ${dayIsHoliday ? 'bg-purple-50' : ''
                             }`}
                         >
-                          {dayIsHoliday ? (
-                            <span className="text-purple-400 text-xs">-</span>
+                          {dayIsHoliday || isFutureDay(day) ? (
+                            <span className={`${dayIsHoliday ? 'text-purple-400' : 'text-slate-300'} text-xs`}>-</span>
                           ) : (
                             <Select onValueChange={(status) => handleMarkColumn(day, status)}>
                               <SelectTrigger className="w-8 h-6 p-0 border-0 shadow-none text-xs">
@@ -479,14 +499,14 @@ const AttendancePage = () => {
                   const summary = calculateSummary(employee);
                   return (
                     <tr
-                      key={employee.employee_id}
+                      key={rowId(employee)}
                       className={`border-b border-slate-100 hover:bg-slate-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}
                     >
                       {/* Employee Info */}
                       <td className="sticky left-0 z-10 bg-inherit px-4 py-3 border-r border-slate-200">
                         <div className="min-w-[180px]">
                           <div className="font-medium text-slate-900 truncate">{employee.full_name}</div>
-                          <div className="text-xs text-slate-500">{employee.employee_id} • {employee.department}</div>
+                          <div className="text-xs text-slate-500">{[employee.employee_code ?? employee.employee_id, employee.department].filter(Boolean).join(' • ')}</div>
                         </div>
                       </td>
 
@@ -496,8 +516,9 @@ const AttendancePage = () => {
                         const holidayInfo = getHolidayInfo(day);
                         const status = getCellStatus(employee, day);
                         const style = getStatusStyle(status);
-                        const key = `${employee.employee_id}-${day}`;
+                        const key = `${rowId(employee)}-${day}`;
                         const hasChange = !!pendingChanges[key];
+                        const future = isFutureDay(day);
 
                         // Holiday cell
                         if (dayIsHoliday) {
@@ -527,15 +548,15 @@ const AttendancePage = () => {
                             className="px-1 py-1 text-center border-r border-slate-100"
                           >
                             <button
-                              onClick={() => handleCellClick(employee.employee_id, day)}
-                              disabled={user?.role !== 'admin'}
+                              onClick={() => handleCellClick(rowId(employee), day)}
+                              disabled={user?.role !== 'admin' || future}
                               className={`
                                 w-8 h-8 rounded text-xs font-bold transition-all
                                 ${style.color} ${style.textColor}
-                                ${user?.role === 'admin' ? 'hover:ring-2 hover:ring-slate-400 cursor-pointer' : 'cursor-default'}
+                                ${future ? 'opacity-40 cursor-not-allowed' : user?.role === 'admin' ? 'hover:ring-2 hover:ring-slate-400 cursor-pointer' : 'cursor-default'}
                                 ${hasChange ? 'ring-2 ring-amber-400 ring-offset-1' : ''}
                               `}
-                              title={`${employee.full_name} - Day ${day}: ${status || 'Not marked'}`}
+                              title={future ? 'Future date - attendance cannot be marked yet' : `${employee.full_name} - Day ${day}: ${status || 'Not marked'}`}
                             >
                               {style.label}
                             </button>
@@ -582,6 +603,7 @@ const AttendancePage = () => {
                   <li>Use "Quick Mark All" dropdowns in the header row to mark all employees for a specific day</li>
                   <li>Changes are highlighted with an orange ring - click "Save Changes" to persist</li>
                   <li>Purple highlighted columns are holidays (from your Holidays settings) - attendance cannot be marked</li>
+                  <li>Future dates are greyed out - attendance can only be marked up to today</li>
                   <li>Download the attendance as an Excel file using the "Download XLSX" button</li>
                 </ul>
               </div>

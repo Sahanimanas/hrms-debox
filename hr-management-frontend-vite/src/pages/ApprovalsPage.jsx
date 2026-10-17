@@ -38,12 +38,16 @@ const ApprovalsPage = () => {
 
   const handleAction = async () => {
     if (!actionDialog.leave || !actionDialog.action) return;
+    if (actionDialog.action === 'reject' && !comments.trim()) {
+      toast.error('Please give a reason for rejecting this leave');
+      return;
+    }
 
     setSubmitting(true);
     try {
       await api.put(`/leaves/${actionDialog.leave.id}/action`, {
         action: actionDialog.action,
-        comments: comments || undefined,
+        comments: comments.trim() || undefined,
       });
 
       toast.success(
@@ -282,7 +286,11 @@ const ApprovalsPage = () => {
                     </div>
                   )}
 
-                  {leave.can_act === false ? (
+                  {leave.is_own ? (
+                    <p className="text-sm text-slate-500 bg-white border border-slate-200 rounded-lg p-3">
+                      This is your own leave: another approver must act on it.
+                    </p>
+                  ) : leave.can_act === false ? (
                     <p className="text-sm text-slate-500 bg-white border border-slate-200 rounded-lg p-3">
                       Waiting for {leave.current_step_name || 'another approver'}.
                     </p>
@@ -376,11 +384,13 @@ const ApprovalsPage = () => {
               </div>
             )}
             <div>
-              <Label htmlFor="comments">Comments (Optional)</Label>
+              <Label htmlFor="comments">
+                {actionDialog.action === 'reject' ? 'Reason for rejection *' : 'Comments (Optional)'}
+              </Label>
               <Textarea
                 id="comments"
                 data-testid="action-comments-textarea"
-                placeholder="Add any comments..."
+                placeholder={actionDialog.action === 'reject' ? 'Tell the employee why this leave is rejected...' : 'Add any comments...'}
                 value={comments}
                 onChange={(e) => setComments(e.target.value)}
                 rows={4}
@@ -407,7 +417,7 @@ const ApprovalsPage = () => {
                   ? 'bg-emerald-600 hover:bg-emerald-700'
                   : 'bg-red-600 hover:bg-red-700'
                   }`}
-                disabled={submitting}
+                disabled={submitting || (actionDialog.action === 'reject' && !comments.trim())}
               >
                 {submitting ? 'Processing...' : 'Confirm'}
               </Button>

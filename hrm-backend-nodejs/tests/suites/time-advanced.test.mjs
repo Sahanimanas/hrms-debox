@@ -22,7 +22,7 @@ await run(async () => {
   const night = await createUser(admin, { role: 'employee', name: 'Nia Night', department: 'Engineering', manager_email: mgr.email });
 
   // A day shift everyone falls back to, and a night shift for Nia
-  await post('/time/shifts', admin, { name: 'General', start_time: '09:30', end_time: '18:30', weekly_offs: [0] });
+  await post('/time/shifts', admin, { name: 'General', start_time: '09:30', end_time: '18:30', weekly_offs: [0], is_default: true });
   const nightShift = (await post('/time/shifts', admin, { name: 'Night', start_time: '22:00', end_time: '06:00', weekly_offs: [], full_day_minutes: 420 })).d;
   const roster = (await get('/time/shift-roster', admin)).d;
   const uid = (u) => roster.find(r => r.email === u.email)?.employee_id;
@@ -130,6 +130,8 @@ await run(async () => {
     { project_id: apollo.id, task: 'Review', minutes: { [week]: 600 } }
   ] });
   check('more than 24h in a day rejected', r.s === 400, r);
+  r = await put('/timesheets/week', emp.token, { week_start: week, rows: [{ project_id: apollo.id, minutes: { [week]: -180 } }] });
+  check('negative hours rejected with a message', r.s === 422 && r.d?.errors?.[0]?.message === 'Hours cannot be negative', r);
   r = await put('/timesheets/week', emp.token, { week_start: week, rows: [
     { project_id: apollo.id, task: 'Build', minutes: { [week]: 480, [addDays(week, 1)]: 450 } },
     { project_id: apollo.id, task: 'Review', minutes: { [addDays(week, 2)]: 120 } }
@@ -173,6 +175,24 @@ await run(async () => {
   await post('/timesheets/week/submit', emp.token, { week_start: week });
   r = await post(`/timesheets/sheets/${sheet.id}/action`, mgr.token, { action: 'approve' });
   check('manager approves', r.s === 200 && r.d.status === 'approved', r);
+
+  // No self-approval, admins included
+  // (a week earlier, so the report checks below only see the team's week)
+  const hrAdmin = await createUser(admin, { role: 'admin', name: 'Hari Admin', department: 'HR' });
+  const prevWeek = addDays(week, -7);
+  await put('/timesheets/week', hrAdmin.token, { week_start: prevWeek, rows: [{ project_id: apollo.id, task: 'Payroll', minutes: { [prevWeek]: 240 } }] });
+  await post('/timesheets/week/submit', hrAdmin.token, { week_start: prevWeek });
+  const ownSheet = (await get('/timesheets/approvals', hrAdmin.token)).d?.find?.(s => s.user_email === hrAdmin.email);
+  r = await post(`/timesheets/sheets/${ownSheet?.id}/action`, hrAdmin.token, { action: 'approve' });
+  check('admin cannot approve their own timesheet', r.s === 403 && /own timesheet/.test(r.d?.detail), r);
+  r = await post(`/timesheets/sheets/${ownSheet?.id}/action`, admin, { action: 'approve' });
+  check('another admin can approve it', r.s === 200 && r.d.status === 'approved', r);
+  r = await post('/time/requests', hrAdmin.token, { type: 'wfh', date: addDays(today, 6), reason: 'Own request' });
+  const ownReq = r.d?.id;
+  r = await post(`/time/requests/${ownReq}/action`, hrAdmin.token, { action: 'approve' });
+  check('admin cannot approve their own attendance request', r.s === 403 && /own request/.test(r.d?.detail), r);
+  r = await post(`/time/requests/${ownReq}/action`, admin, { action: 'approve' });
+  check('another admin can approve the attendance request', r.s === 200 && r.d.status === 'approved', r);
   r = await post('/timesheets/week/recall', emp.token, { week_start: week });
   check('approved week cannot be recalled', r.s === 400, r);
 

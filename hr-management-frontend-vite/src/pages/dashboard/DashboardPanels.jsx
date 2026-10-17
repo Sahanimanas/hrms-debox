@@ -55,7 +55,7 @@ const Empty = ({ icon, children }) => {
 
 /**
  * Leave requests waiting on the viewer. Approve acts immediately; reject asks
- * for an optional reason. Both go through PUT /leaves/:id/action.
+ * for a reason (required). Both go through PUT /leaves/:id/action.
  */
 export const PendingApprovalsPanel = ({ leaves, loading, onActed, className }) => {
   const [busyId, setBusyId] = useState(null);
@@ -109,7 +109,11 @@ export const PendingApprovalsPanel = ({ leaves, loading, onActed, className }) =
                   {leave.leave_type} · {leave.is_half_day ? 'Half day' : leaveDatesLabel(leave)}
                 </p>
               </div>
-              {leave.can_act === false ? (
+              {leave.is_own ? (
+                <span className="max-w-[7.5rem] truncate text-xs text-ink-muted" title="Another approver must act on your own leave">
+                  Your own leave
+                </span>
+              ) : leave.can_act === false ? (
                 <span className="max-w-[7.5rem] truncate text-xs text-ink-muted" title={`Waiting for ${leave.current_step_name || 'another approver'}`}>
                   Waiting for {leave.current_step_name || 'another approver'}
                 </span>
@@ -157,7 +161,7 @@ export const PendingApprovalsPanel = ({ leaves, loading, onActed, className }) =
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="dashboard-reject-comments" className="text-ink">Reason (optional)</Label>
+                <Label htmlFor="dashboard-reject-comments" className="text-ink">Reason *</Label>
                 <Textarea
                   id="dashboard-reject-comments"
                   value={comments}
@@ -172,8 +176,8 @@ export const PendingApprovalsPanel = ({ leaves, loading, onActed, className }) =
             <Button variant="outline" onClick={() => setRejecting(null)}>Cancel</Button>
             <Button
               data-testid="dashboard-confirm-reject"
-              disabled={!rejecting || busyId === rejecting?.id}
-              onClick={() => act(rejecting, 'reject', comments)}
+              disabled={!rejecting || busyId === rejecting?.id || !comments.trim()}
+              onClick={() => act(rejecting, 'reject', comments.trim())}
               className="bg-danger-solid text-white hover:bg-danger-fg"
             >
               Reject

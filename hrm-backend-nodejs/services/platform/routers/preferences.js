@@ -3,7 +3,7 @@
  *
  *   GET  /preferences/me                  { language }
  *   PUT  /preferences/me      { language: 'en' | 'hi' }
- *   GET  /org-preferences                 the caller's organization (falls back to 'default')
+ *   GET  /org-preferences                 the caller's organization (falls back to 'default'), plus timezone
  *   GET  /org-preferences/all             admin: every organization + its preferences
  *   PUT  /org-preferences/:orgId          admin: { currency, locale, date_format }  (orgId 'default' allowed)
  *
@@ -15,6 +15,7 @@ const Joi = require('joi');
 const { getDB } = require('../../../config/database');
 const { requireRole, validate } = require('../../../middleware/roleCheck');
 const { handle } = require('../common');
+const { APP_TIMEZONE } = require('../../../utils/helpers');
 
 const router = express.Router();
 
@@ -51,7 +52,8 @@ const resolvePrefs = async (db, orgId) => {
   const id = orgId || 'default';
   const doc = await db.collection('org_preferences').findOne({ organization_id: id }, { projection: { _id: 0 } })
     || (id !== 'default' ? await db.collection('org_preferences').findOne({ organization_id: 'default' }, { projection: { _id: 0 } }) : null);
-  return { ...DEFAULT_PREFS, ...(doc || {}), organization_id: id, inherited: !doc || doc.organization_id !== id };
+  // timezone: the company timezone (APP_TIMEZONE, Asia/Kolkata by default) unless the org has its own
+  return { ...DEFAULT_PREFS, timezone: APP_TIMEZONE, ...(doc || {}), organization_id: id, inherited: !doc || doc.organization_id !== id };
 };
 
 router.get('/org-preferences', handle('get org preferences', async (req, res) => {

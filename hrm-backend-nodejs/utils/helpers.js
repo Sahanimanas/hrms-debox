@@ -40,46 +40,33 @@ const calculateDays = (startDate, endDate, isHalfDay = false) => {
 };
 
 /**
- * Generate unique employee ID
+ * Generate unique employee ID. Uses the atomic settings counter (the old
+ * "highest existing + 1" scan handed the same ID to concurrent sign-ups and
+ * ignored legacy employee_code values).
  */
 const generateEmployeeId = async () => {
   const db = getDB();
-  
-  // Get settings
-  const settings = await db.collection('settings').findOne({});
-  const prefix = settings?.employee_id_prefix || 'EMP';
-  const startCounter = settings?.employee_id_counter || 1000;
-  
-  // Find highest counter
-  const employees = await db.collection('employees')
-    .find({}, { projection: { employee_id: 1 } })
-    .toArray();
-  
-  let maxCounter = startCounter;
-  
-  for (const emp of employees) {
-    const empId = emp.employee_id || '';
-    if (empId.startsWith(prefix)) {
-      try {
-        const num = parseInt(empId.replace(prefix, ''), 10);
-        if (!isNaN(num) && num > maxCounter) {
-          maxCounter = num;
-        }
-      } catch (e) {
-        // Ignore parsing errors
-      }
-    }
+  const { allocateEmployeeCode } = require('../services/employeeIdentity');
+  if (await db.collection('settings').findOne({}, { projection: { _id: 1 } })) {
+    return allocateEmployeeCode(db);
   }
-  
-  const newCounter = maxCounter + 1;
-  return `${prefix}${String(newCounter).padStart(4, '0')}`;
+  // No settings yet (before the setup wizard): fall back to the highest existing code + 1
+  const employees = await db.collection('employees').find({}, { projection: { employee_id: 1, employee_code: 1 } }).toArray();
+  let maxCounter = 1000;
+  for (const emp of employees) {
+    const num = parseInt(String(emp.employee_id || emp.employee_code || '').replace(/^EMP/, ''), 10);
+    if (!isNaN(num) && num > maxCounter) maxCounter = num;
+  }
+  return `EMP${String(maxCounter + 1).padStart(4, '0')}`;
 };
 
 /**
- * Normalize leave type to database key format
+ * Normalize leave type to database key format.
+ * "Comp Off", "Comp-Off", "CompOff" … are one type: comp-off grants credit leave_balance.comp_off.
  */
 const normalizeLeaveType = (leaveType) => {
-  return leaveType.toLowerCase().replace(/ /g, '_');
+  const key = leaveType.toLowerCase().replace(/ /g, '_');
+  return /^comp[\s_-]*off$/.test(key.trim()) ? 'comp_off' : key;
 };
 
 /**

@@ -123,7 +123,7 @@ export default function DeclarationsReviewPage() {
                     <div className="min-w-0">
                       <p className="font-medium text-slate-900">{d.employee_name}</p>
                       <p className="text-xs text-slate-500">
-                        {d.tax_regime === 'old' ? 'Old regime' : 'New regime'} · declared {fmtINR(d.summary.declared, 0)} · approved {fmtINR(d.summary.approved, 0)} · updated {fmtDate(d.updated_at)}
+                        {d.tax_regime === 'old' ? 'Old regime' : 'New regime'} · declared {fmtINR(d.summary.declared, 0)} · approved {fmtINR(d.summary.approved, 0)} · counted for TDS {fmtINR(d.summary.counted, 0)} · updated {fmtDate(d.updated_at)}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">

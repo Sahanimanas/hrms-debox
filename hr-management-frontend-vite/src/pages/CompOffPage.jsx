@@ -107,8 +107,11 @@ const CompOffPage = () => {
     }
 
     try {
+      // Email identifies every employee (seeded ones may have no employee code); the ids are fallbacks
       await api.post('/comp-off/grant', {
-        user_id: selectedEmployee.id,
+        employee_email: selectedEmployee.email,
+        employee_id: selectedEmployee.employee_id || selectedEmployee.employee_code || undefined,
+        user_id: selectedEmployee.id || undefined,
         days: parsedDays,
         work_date: compOffForm.work_date,
         reason: compOffForm.reason,
@@ -312,7 +315,7 @@ const CompOffPage = () => {
           const pendingRejectedRecords = getPendingRejectedRecords(employee.email);
 
           return (
-            <Card key={employee.id} className="border-slate-200 hover:shadow-md transition-shadow">
+            <Card key={employee.email || employee.id} className="border-slate-200 hover:shadow-md transition-shadow">
               <CardHeader className="pb-3 bg-gradient-to-r from-purple-50/50 to-amber-50/50">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">

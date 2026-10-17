@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Handshake, Download, FileDown, Send, UserCheck, Search } from 'lucide-react';
+import { Handshake, Download, FileDown, Send, UserCheck, Search, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -43,6 +43,16 @@ export default function OffersPage() {
     const decided = count('accepted') + count('declined') + count('expired');
     return { pending: count('sent'), accepted: count('accepted'), drafts: count('draft'), rate: decided ? Math.round((count('accepted') / decided) * 100) : null };
   }, [offers]);
+
+  const approve = async (o) => {
+    try {
+      await api.post(`${API}/offers/${o.id}/approve`);
+      toast.success('Offer approved');
+      reload();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
 
   const send = async (o) => {
     try {
@@ -132,12 +142,14 @@ export default function OffersPage() {
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={o.status} />
+                      {o.requires_approval && o.status === 'draft' && <p className="text-[11px] text-amber-700 mt-1">Outside salary band · needs approval</p>}
                       {o.employee_code && <p className="text-[11px] text-emerald-700 mt-1">{o.employee_code}</p>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap justify-end gap-1">
                         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => pdf(o)} aria-label="Download offer letter"><FileDown className="w-4 h-4" /></Button>
-                        {isAdmin && o.status === 'draft' && <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => send(o)}><Send className="w-3.5 h-3.5" /> Sent</Button>}
+                        {isAdmin && o.status === 'draft' && o.requires_approval && <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => approve(o)}><CheckCircle2 className="w-3.5 h-3.5" /> Approve</Button>}
+                        {isAdmin && o.status === 'draft' && !o.requires_approval && <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => send(o)}><Send className="w-3.5 h-3.5" /> Sent</Button>}
                         {isAdmin && o.status === 'sent' && <Button size="sm" variant="outline" className="h-8" onClick={() => setRespondOffer(o)}>Response</Button>}
                         {isAdmin && o.status === 'accepted' && !o.employee_id && (
                           <Button size="sm" className="h-8 gap-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => setConvertOffer(o)}><UserCheck className="w-3.5 h-3.5" /> Convert</Button>

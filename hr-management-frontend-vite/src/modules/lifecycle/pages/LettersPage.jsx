@@ -13,6 +13,7 @@ import { exportCsv } from '@/lib/exportCsv';
 import { API, errMsg, fmtDate, humanize, downloadFile } from '../lib';
 import { useEmployees } from '../hooks';
 import { PageShell, PageHeader, SectionCard, Loading, Empty, ErrorState, NativeSelect } from '../components/ui';
+import { employeeLabel } from '@/lib/employeeLabel';
 
 const TYPES = ['offer', 'appointment', 'experience', 'relieving', 'other'];
 const EMPTY = { name: '', type: 'other', title: '', body: '' };
@@ -144,7 +145,7 @@ const LettersPage = () => {
                     <Label>Employee</Label>
                     <NativeSelect value={gen.employee_uid} onChange={(v) => { setGen({ ...gen, employee_uid: v }); setPreview(null); }}>
                       <option value="">Choose employee…</option>
-                      {employees.map(e => <option key={e.id} value={e.id}>{e.full_name} ({e.id})</option>)}
+                      {employees.map(e => <option key={e.id} value={e.id}>{employeeLabel(e.full_name, e.employee_id)}</option>)}
                     </NativeSelect>
                   </div>
                   <Button variant="outline" className="gap-2" disabled={busy} onClick={doPreview}><Eye className="w-4 h-4" />Preview</Button>

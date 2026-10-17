@@ -84,10 +84,25 @@ const decryptSecret = (box) => {
 
 const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const PRIVATE_PEER = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1$|f[cd]|fe80:)/i;
+const normalizeIp = (ip) => String(ip || '').trim().replace(/^::ffff:/i, '').slice(0, 64);
+
+/**
+ * Real client address. Proxy headers are only believed when the request came
+ * from our own reverse proxy (a loopback / private peer); then the first
+ * X-Forwarded-For entry is the client, else X-Real-IP. Direct requests use
+ * the socket address, so a client can't forge its IP.
+ */
 const clientIp = (req) => {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd) return fwd.split(',')[0].trim();
-  return req.ip || req.socket?.remoteAddress || null;
+  const peer = normalizeIp(req.socket?.remoteAddress || req.ip);
+  if (PRIVATE_PEER.test(peer)) {
+    const fwd = req.headers['x-forwarded-for'];
+    const first = normalizeIp(String(Array.isArray(fwd) ? fwd[0] : fwd || '').split(',')[0]);
+    if (first) return first;
+    const real = normalizeIp(req.headers['x-real-ip']);
+    if (real) return real;
+  }
+  return peer || normalizeIp(req.ip) || null;
 };
 
 /** Find a user by email (exact first, then case-insensitive). */

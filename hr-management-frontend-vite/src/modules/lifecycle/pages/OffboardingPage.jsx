@@ -17,6 +17,7 @@ import { useEmployees } from '../hooks';
 import { PageShell, PageHeader, SectionCard, Loading, Empty, ErrorState, StatusPill, StatTile, NativeSelect, Avatar, ProgressBar } from '../components/ui';
 import ChecklistTasks from '../components/ChecklistTasks';
 import LifecycleSettingsCard from '../components/LifecycleSettingsCard';
+import { employeeLabel } from '@/lib/employeeLabel';
 
 const CATEGORIES = ['knowledge_transfer', 'access', 'assets', 'finance', 'other'];
 const OWNERS = ['hr', 'manager', 'employee', 'it'];
@@ -540,7 +541,7 @@ const OffboardingPage = () => {
               <Label>Employee</Label>
               <NativeSelect value={term.employee_uid} onChange={(v) => setTerm({ ...term, employee_uid: v })}>
                 <option value="">Select employee…</option>
-                {employees.filter(e => !['exited', 'notice'].includes(e.employment_status) && e.email !== user?.email).map(e => <option key={e.id} value={e.id}>{e.full_name} ({e.id})</option>)}
+                {employees.filter(e => !['exited', 'notice'].includes(e.employment_status) && e.email !== user?.email).map(e => <option key={e.id} value={e.id}>{employeeLabel(e.full_name, e.employee_id)}</option>)}
               </NativeSelect>
             </div>
             <div className="space-y-1.5">

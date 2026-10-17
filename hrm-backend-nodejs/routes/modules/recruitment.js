@@ -2021,6 +2021,29 @@ const offerDatesError = (offer, { checkExpiryFuture = true } = {}) => {
   return null;
 };
 
+/**
+ * Salary band check. An offer whose CTC is outside the job's salary band is
+ * flagged out_of_band and needs an admin's approval before it can be sent.
+ * The approver must be someone other than whoever set the CTC, unless they are
+ * the only admin. Older offers without these fields are treated as in band.
+ */
+const inr = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
+const bandFor = (ctc, job) => {
+  const min = job?.salary_min ?? null;
+  const max = job?.salary_max ?? null;
+  const outOfBand = (min != null && ctc < min) || (max != null && ctc > max);
+  return {
+    salary_band: min == null && max == null ? null : { min, max },
+    out_of_band: outOfBand,
+    requires_approval: outOfBand,
+    band_approved_by_email: null,
+    band_approved_by_name: null,
+    band_approved_at: null
+  };
+};
+const bandLabel = (band) => (band.min != null && band.max != null ? `${inr(band.min)}–${inr(band.max)}`
+  : band.min != null ? `at least ${inr(band.min)}` : `at most ${inr(band.max)}`);
+
 app.get('/offers', staff, handler('List offers', async (req, res, db) => {
   const ids = await managedJobIds(db, req.user);
   const scope = ids ? { job_id: { $in: ids } } : {};
@@ -2035,7 +2058,7 @@ app.get('/offers', staff, handler('List offers', async (req, res, db) => {
 }));
 
 app.post('/candidates/:id/offers', adminOnly, validate(offerCreate), handler('Create offer', async (req, res, db) => {
-  const { candidate } = await loadFullCandidate(db, req, res);
+  const { candidate, job } = await loadFullCandidate(db, req, res);
   if (!candidate) return;
   if (['hired', 'rejected', 'withdrawn'].includes(candidate.stage)) return fail(res, 400, `Cannot make an offer to a ${candidate.stage} candidate`);
   const open = await db.collection(COL.offers).findOne({ candidate_id: candidate.id, status: { $in: C.OPEN_OFFER_STATUSES } });
@@ -2059,6 +2082,8 @@ app.post('/candidates/:id/offers', adminOnly, validate(offerCreate), handler('Cr
     expiry_date: data.expiry_date,
     notes: data.notes || '',
     status: 'draft',
+    ...bandFor(round2(data.ctc), job),
+    ctc_set_by_email: req.user.email,
     signatory_name: req.user.full_name || 'Human Resources',
     history: [historyEntry(req, { status: 'draft' })],
     employee_id: null,
@@ -2086,11 +2111,13 @@ app.get('/offers/:id', staff, handler('Get offer', async (req, res, db) => {
 }));
 
 app.put('/offers/:id', adminOnly, validate(offerUpdate), handler('Update offer', async (req, res, db) => {
-  const { offer } = await loadOfferWithAccess(db, req, res, { write: true });
+  const { offer, job } = await loadOfferWithAccess(db, req, res, { write: true });
   if (!offer) return;
   if (offer.status !== 'draft') return fail(res, 400, 'Only draft offers can be edited');
   const updates = { ...req.validatedBody };
   if (updates.ctc != null) updates.ctc = round2(updates.ctc);
+  // A changed CTC is checked against the band again and any earlier approval lapses
+  if (updates.ctc != null && updates.ctc !== offer.ctc) Object.assign(updates, bandFor(updates.ctc, job), { ctc_set_by_email: req.user.email });
   const dateProblem = offerDatesError({ ...offer, ...updates });
   if (dateProblem) return fail(res, 422, dateProblem);
   await db.collection(COL.offers).updateOne({ id: offer.id }, { $set: { ...updates, updated_at: new Date() } });
@@ -2106,10 +2133,33 @@ app.delete('/offers/:id', adminOnly, handler('Discard offer', async (req, res, d
   res.json({ message: 'Offer discarded' });
 }));
 
+/** POST /offers/:id/approve — approve a draft offer whose CTC is outside the job's salary band. */
+app.post('/offers/:id/approve', adminOnly, handler('Approve offer', async (req, res, db) => {
+  const { offer } = await loadOfferWithAccess(db, req, res, { write: true });
+  if (!offer) return;
+  if (offer.status !== 'draft') return fail(res, 400, `Offer is already ${offer.status}`);
+  if (!offer.requires_approval) return fail(res, 400, 'This offer does not need approval');
+  if (offer.ctc_set_by_email === req.user.email) {
+    const admins = await db.collection('users').find({ role: 'admin' }, { projection: { _id: 0, email: 1, is_active: 1 } }).toArray();
+    if (admins.some(a => a.is_active !== false && a.email !== req.user.email)) {
+      return fail(res, 403, 'You set this CTC, so another admin must approve it');
+    }
+  }
+  const now = new Date();
+  await db.collection(COL.offers).updateOne({ id: offer.id, status: 'draft' }, {
+    $set: { requires_approval: false, band_approved_by_email: req.user.email, band_approved_by_name: req.user.full_name || req.user.email, band_approved_at: now, updated_at: now },
+    $push: { history: historyEntry(req, { status: 'draft', reason: `CTC ${inr(offer.ctc)} approved outside the salary band` }) }
+  });
+  res.json(await db.collection(COL.offers).findOne({ id: offer.id }, NO_ID));
+}));
+
 app.post('/offers/:id/send', adminOnly, handler('Send offer', async (req, res, db) => {
   const { offer } = await loadOfferWithAccess(db, req, res, { write: true });
   if (!offer) return;
   if (offer.status !== 'draft') return fail(res, 400, `Offer is already ${offer.status}`);
+  if (offer.requires_approval) {
+    return fail(res, 400, `The CTC ${inr(offer.ctc)} is outside the job's salary band (${bandLabel(offer.salary_band || {})}); an admin must approve the offer before it is sent`);
+  }
   const dateProblem = offerDatesError(offer);
   if (dateProblem) return fail(res, 422, dateProblem);
   const now = new Date();

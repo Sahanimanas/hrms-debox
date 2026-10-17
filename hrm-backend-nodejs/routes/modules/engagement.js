@@ -107,10 +107,11 @@ router.put('/settings', requireRole(['admin']), validate(settingsSchema), handle
 router.get('/directory', handle('Directory', async (req, res) => {
   const db = getDB();
   const employees = await db.collection('employees')
-    .find(ACTIVE_EMPLOYEE, { projection: { _id: 0, id: 1, full_name: 1, department: 1, designation: 1, email: 1 } })
+    .find(ACTIVE_EMPLOYEE, { projection: { _id: 0, id: 1, employee_id: 1, employee_code: 1, full_name: 1, department: 1, designation: 1, email: 1 } })
     .sort({ full_name: 1 })
     .toArray();
-  res.json(employees.filter(e => e.id).map(e => ({ ...publicPerson(e), is_me: e.email === req.user.email })));
+  // publicPerson keys legacy rows without a uuid by their code, so they are listed too
+  res.json(employees.map(e => ({ ...publicPerson(e), is_me: e.email === req.user.email })).filter(p => p.id));
 }));
 
 /**

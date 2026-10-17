@@ -85,8 +85,9 @@ async function computePayslip(db, run, settings, employee) {
   const fy = fyOf(month);
   const uid = employeeUid(employee);
 
+  // Salary revision → salary structure → employees.monthly_salary (see effectiveStructure)
   const eff = await effectiveStructure(db, employee, month);
-  if (!eff) return { skip: 'No salary structure for this month' };
+  if (!eff) return { skip: 'No salary structure or monthly salary for this month' };
   const comps = monthlyComponents(eff.structure);
   if (comps.gross <= 0) return { skip: 'Salary structure has no earnings' };
 
@@ -147,6 +148,7 @@ async function computePayslip(db, run, settings, employee) {
   let hraExemption = 0;
   let deductions = {};
   let declarationId = null;
+  let capOptions = {};
   if (regime === 'old') {
     const declaration = await db.collection('tax_declarations').findOne({ employee_uid: uid, financial_year: fy }, { projection: { _id: 0 } });
     declarationId = declaration?.id || null;
@@ -155,6 +157,7 @@ async function computePayslip(db, run, settings, employee) {
     const annualBasicDa = prior.basic_da + earned.basic + earned.da + (comps.basic + comps.da) * n;
     hraExemption = computeHraExemption({ hraReceived: annualHra, basicDa: annualBasicDa, rentPaid: inputs.rentPaid, metro: inputs.metro });
     deductions = { ...inputs.deductions, '80C': round2((inputs.deductions['80C'] || 0) + projectedPf) };
+    capOptions = { ...inputs.capOptions, selfSenior: age != null && age >= 60 };
   }
   const annual = computeAnnualTax({
     regime,
@@ -162,7 +165,8 @@ async function computePayslip(db, run, settings, employee) {
     grossSalary: projectedGross,
     hraExemption,
     professionalTax: projectedPt,
-    deductions
+    deductions,
+    capOptions
   });
   const tds = monthlyTds({ annualTax: annual.total, tdsDeducted: prior.tds, remainingMonths: n + 1 });
 
@@ -220,6 +224,8 @@ async function computePayslip(db, run, settings, employee) {
   if (!statutoryDoc?.bank_account_number || !statutoryDoc?.ifsc) warnings.push('Bank details missing');
   if (pf.applicable && !statutoryDoc?.uan) warnings.push('UAN missing');
   if (taxCfg.fallback) warnings.push(`Tax slabs for FY ${fy} not configured — using FY ${taxCfg.fy}`);
+  if (eff.source === 'monthly_salary') warnings.push('No salary structure — monthly salary split with the default CTC components');
+  if (lop.unmarked_days && !lop.unmarked_is_lop) warnings.push(`${lop.unmarked_days} working day${lop.unmarked_days === 1 ? '' : 's'} without attendance (paid; review attendance)`);
 
   const now = new Date();
   const payslip = {
@@ -243,6 +249,7 @@ async function computePayslip(db, run, settings, employee) {
     pt_state: ptState,
     tax_regime: regime,
     structure_revision_id: eff.revision_id,
+    salary_source: eff.source || null,
     monthly_gross: comps.gross,
     days_in_month: lop.days_in_month,
     basis_days: lop.basis_days,
@@ -250,6 +257,10 @@ async function computePayslip(db, run, settings, employee) {
     lop_days: lop.lop_days,
     lop_amount: lopAmt,
     lop_breakdown: lop.breakdown,
+    unmarked_days: lop.unmarked_days,
+    attendance_period: lop.period,
+    elapsed_days: lop.elapsed_days,
+    payable_days_to_date: lop.payable_days_to_date,
     lop_dates: lop.days,
     earned,
     gross_earnings: grossEarnings,
@@ -349,12 +360,10 @@ const requireDraft = (run) => {
   if (run.status !== 'draft') throw new PayrollError(409, `Payroll run is ${run.status} and can no longer be changed`);
 };
 
-/** (Re)compute every payslip of a draft run. */
-async function computeRun(db, run) {
-  requireDraft(run);
-  const settings = await getSettings(db);
-  const employees = await db.collection('employees').find(ACTIVE_EMPLOYEES, { projection: { _id: 0 } }).toArray();
-
+/** Payslips for every active employee (nothing is saved). Returns { payslips, skipped }. */
+async function computeAll(db, run, settings) {
+  // _id kept: seeded salary structures are keyed by it
+  const employees = await db.collection('employees').find(ACTIVE_EMPLOYEES).toArray();
   const payslips = [];
   const skipped = [];
   for (const employee of employees) {
@@ -367,6 +376,14 @@ async function computeRun(db, run) {
       skipped.push({ employee_uid: employeeUid(employee), employee_name: employee.full_name, reason: 'Calculation error' });
     }
   }
+  return { payslips, skipped };
+}
+
+/** (Re)compute every payslip of a draft run. */
+async function computeRun(db, run) {
+  requireDraft(run);
+  const settings = await getSettings(db);
+  const { payslips, skipped } = await computeAll(db, run, settings);
 
   // Guard against a concurrent lock between reading and writing
   const fresh = await getRun(db, run.id);
@@ -391,11 +408,21 @@ async function computeRun(db, run) {
   return getRun(db, run.id);
 }
 
+/**
+ * What a run for `month` would compute, without saving anything (Payroll Management
+ * summary when no run exists yet). Returns { payslips, skipped }.
+ */
+async function previewMonth(db, month) {
+  const settings = await getSettings(db);
+  return computeAll(db, { id: `preview:${month}`, month, status: 'preview' }, settings);
+}
+
 /** Recompute one employee's payslip in a draft run (after an adjustment change). */
 async function recomputeEmployee(db, run, uid) {
   requireDraft(run);
   const settings = await getSettings(db);
-  const employees = await db.collection('employees').find(ACTIVE_EMPLOYEES, { projection: { _id: 0 } }).toArray();
+  // _id kept: seeded salary structures are keyed by it
+  const employees = await db.collection('employees').find(ACTIVE_EMPLOYEES).toArray();
   const employee = employees.find(e => employeeUid(e) === uid);
   if (!employee) throw new PayrollError(404, 'Employee not found or not active');
   const result = await computePayslip(db, run, settings, employee);
@@ -522,6 +549,7 @@ module.exports = {
   ONE_OFF_TYPES,
   computePayslip,
   computeRun,
+  previewMonth,
   recomputeEmployee,
   createRun,
   lockRun,

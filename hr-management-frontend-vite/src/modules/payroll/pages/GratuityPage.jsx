@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import api from '@/lib/api';
 import { PageShell, SectionCard, EmptyBlock } from '../components/PayrollUI';
 import { API, errMsg, fmtINR } from '../lib';
+import { employeeLabel } from '@/lib/employeeLabel';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -66,7 +67,7 @@ export default function GratuityPage() {
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="manual">Enter figures manually</SelectItem>
-                {employees.map(e => <SelectItem key={e.uid} value={e.uid}>{e.name} ({e.employee_code}){e.employment_status === 'exited' ? ' — exited' : ''}</SelectItem>)}
+                {employees.map(e => <SelectItem key={e.uid} value={e.uid}>{employeeLabel(e.name, e.employee_code)}{e.employment_status === 'exited' ? ' — exited' : ''}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>

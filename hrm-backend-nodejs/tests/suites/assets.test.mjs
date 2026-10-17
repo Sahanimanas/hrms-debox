@@ -44,6 +44,10 @@ await run(async () => {
   check('unknown category rejected', r.s === 422, r);
   r = await post('/v2/assets/items', admin, { asset_tag: 'LAP-001', name: 'MacBook', category: 'laptop', cost: -5 });
   check('negative cost rejected', r.s === 422, r);
+  r = await post('/v2/assets/items', admin, { asset_tag: 'LAP-001', name: 'MacBook', category: 'laptop', purchase_date: addDays(30) });
+  check('future purchase date rejected', r.s === 422 && /future/.test(r.d?.detail), r);
+  r = await post('/v2/assets/items', admin, { asset_tag: 'LAP-001', name: 'MacBook', category: 'laptop', purchase_date: '2025-04-01', warranty_expiry: '2025-03-01' });
+  check('warranty expiry before the purchase date rejected', r.s === 422 && /before the purchase/.test(r.d?.detail), r);
   r = await post('/v2/assets/items', emp.token, { asset_tag: 'LAP-001', name: 'MacBook', category: 'laptop' });
   check('employee cannot create assets', r.s === 403, r);
   r = await post('/v2/assets/items', admin, {
@@ -52,6 +56,8 @@ await run(async () => {
   });
   check('admin creates an asset (category by label, cost rounded)', r.s === 201 && r.d.category === 'laptop' && r.d.status === 'available' && r.d.cost === 185000.46 && !r.d.asset_tag_key, r);
   const lap = r.d;
+  r = await put(`/v2/assets/items/${lap?.id}`, admin, { warranty_expiry: '2025-01-01' });
+  check('update cannot move the warranty before the stored purchase date', r.s === 422, r);
   r = await post('/v2/assets/items', admin, { asset_tag: 'lap-001', name: 'Dup', category: 'laptop' });
   check('asset tag unique (case-insensitive)', r.s === 409, r);
   r = await post('/v2/assets/items', admin, { asset_tag: 'LAP-002', name: 'Dup serial', category: 'laptop', serial_number: 'sn-aaa-1' });

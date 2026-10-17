@@ -64,9 +64,21 @@ const getViewer = async (db, user) => {
   };
 };
 
+/**
+ * Key for a colleague in pickers and kudos: the uuid id, falling back to the
+ * employee code for legacy rows without one (never the email, which stays private).
+ */
+const personKey = (e) => (e ? e.id || e.employee_id || e.employee_code || null : null);
+
+/** Find active employees by personKey values. */
+const findPeopleByKeys = (db, keys, projection = { _id: 0, id: 1, employee_id: 1, employee_code: 1, email: 1, full_name: 1, department: 1 }) =>
+  db.collection('employees')
+    .find({ $or: [{ id: { $in: keys } }, { employee_id: { $in: keys } }, { employee_code: { $in: keys } }], ...ACTIVE_EMPLOYEE }, { projection })
+    .toArray();
+
 /** Minimal public view of a colleague (no email / salary / DOB). */
 const publicPerson = (e) => e ? ({
-  id: e.id,
+  id: personKey(e),
   full_name: e.full_name,
   department: e.department || null,
   designation: e.designation || null
@@ -216,6 +228,8 @@ module.exports = {
   handle,
   validateQuery,
   getViewer,
+  personKey,
+  findPeopleByKeys,
   publicPerson,
   teamQuery,
   audienceObject,

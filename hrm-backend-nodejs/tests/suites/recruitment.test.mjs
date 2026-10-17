@@ -534,6 +534,28 @@ await run(async () => {
   r = await post(`/v2/recruitment/candidates/${s1.id}/offers`, admin, { ...offerBody, designation: 'Sales Lead', department: 'Sales', ctc: 1800000 });
   check('a new offer can follow a declined one', r.s === 201, r);
   await del(`/v2/recruitment/offers/${r.d.id}`, admin);
+
+  // Salary band: a CTC outside the job's band needs another admin's approval before it is sent
+  const salesBand = await withDb(db => db.collection('job_postings').findOne({ id: salesJobId }));
+  await withDb(db => db.collection('job_postings').updateOne({ id: salesJobId }, { $set: { salary_min: 2000000, salary_max: 3000000 } }));
+  const admin2 = await createUser(admin, { role: 'admin', name: 'Bina Backup', department: 'HR' });
+  r = await post(`/v2/recruitment/candidates/${s1.id}/offers`, admin, { ...offerBody, designation: 'Sales Lead', department: 'Sales', ctc: 5000000 });
+  check('offer above the salary band is flagged for approval', r.s === 201 && r.d.out_of_band === true && r.d.requires_approval === true && r.d.salary_band?.max === 3000000, r.d);
+  const bandOffer = r.d?.id;
+  r = await post(`/v2/recruitment/offers/${bandOffer}/send`, admin, {});
+  check('out-of-band offer cannot be sent before approval', r.s === 400 && /salary band/.test(r.d?.detail), r);
+  r = await post(`/v2/recruitment/offers/${bandOffer}/approve`, admin, {});
+  check('the admin who set the CTC cannot approve it while another admin exists', r.s === 403, r);
+  r = await post(`/v2/recruitment/offers/${bandOffer}/approve`, admin2.token, {});
+  check('another admin approves the out-of-band offer', r.s === 200 && r.d.requires_approval === false && r.d.band_approved_by_email === admin2.email, r);
+  r = await put(`/v2/recruitment/offers/${bandOffer}`, admin, { ctc: 5500000 });
+  check('changing the CTC again needs a fresh approval', r.s === 200 && r.d.requires_approval === true && !r.d.band_approved_by_email, r.d);
+  r = await put(`/v2/recruitment/offers/${bandOffer}`, admin, { ctc: 2500000 });
+  check('a CTC back inside the band needs no approval', r.s === 200 && r.d.out_of_band === false && r.d.requires_approval === false, r.d);
+  r = await post(`/v2/recruitment/offers/${bandOffer}/approve`, admin2.token, {});
+  check('an in-band offer has nothing to approve', r.s === 400, r);
+  await del(`/v2/recruitment/offers/${bandOffer}`, admin);
+  await withDb(db => db.collection('job_postings').updateOne({ id: salesJobId }, { $set: { salary_min: salesBand?.salary_min ?? null, salary_max: salesBand?.salary_max ?? null } }));
   r = await post(`/v2/recruitment/candidates/${s2.id}/offers`, admin, { ...offerBody, designation: 'Sales Lead', department: 'Sales' });
   const expOffer = r.d?.id;
   await post(`/v2/recruitment/offers/${expOffer}/send`, admin, {});

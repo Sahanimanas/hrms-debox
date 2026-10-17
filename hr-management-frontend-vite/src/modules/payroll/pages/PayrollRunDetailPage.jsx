@@ -18,6 +18,7 @@ import api from '@/lib/api';
 import { exportCsv } from '@/lib/exportCsv';
 import PayslipDialog from '../components/PayslipDialog';
 import { API, fmtINR, monthLabel, shiftMonth, errMsg, fmtDate, downloadFile, blobErrMsg, ONE_OFF_LABELS } from '../lib';
+import { employeeLabel } from '@/lib/employeeLabel';
 
 const EMPTY_ADJ = { employee_uid: '', type: 'bonus', label: '', amount: '', taxable: true, note: '' };
 const REGISTER_PAGE = 10;
@@ -754,7 +755,7 @@ export default function PayrollRunDetailPage() {
               <Select value={adj.employee_uid} onValueChange={(v) => setAdj({ ...adj, employee_uid: v })}>
                 <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
                 <SelectContent>
-                  {run.payslips.map(p => <SelectItem key={p.employee_uid} value={p.employee_uid}>{p.employee_name} ({p.employee_code})</SelectItem>)}
+                  {run.payslips.map(p => <SelectItem key={p.employee_uid} value={p.employee_uid}>{employeeLabel(p.employee_name, p.employee_code)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

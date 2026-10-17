@@ -26,6 +26,7 @@ import PayrollPage from '@/pages/PayrollPage';
 import SalaryStructurePage from '@/pages/SalaryStructurePage';
 import SalaryTemplatePage from '@/pages/SalaryTemplatePage';
 import Layout from '@/components/Layout';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import HolidaysPage from '@/pages/HolidaysPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
@@ -61,6 +62,8 @@ const PmGate = () => (isAuthenticated() ? <PmLayout /> : <Navigate to="/login?ap
 function App() {
   return (
     <div className="App">
+      {/* Last resort: pages inside the app shell have their own boundary (Layout) */}
+      <ErrorBoundary fullScreen>
       <BrowserRouter>
         <Routes>
           <Route path="/landing" element={<LandingPage />} />
@@ -110,6 +113,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
+      </ErrorBoundary>
       <Toaster position="top-right" />
     </div>
   );

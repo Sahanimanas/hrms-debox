@@ -60,6 +60,7 @@ await run(async () => {
     ]
   });
   check('employee creates goal with key results; progress computed (25%+50%)/2', r.s === 201 && r.d.progress === 37.5 && r.d.approval_status === 'draft', r.d);
+  check('goal status follows progress (37.5% is on track, not "not started")', r.d?.status === 'on_track', r.d);
   const g1 = r.d?.id;
   const kr1 = r.d?.key_results?.[0]?.id;
   r = await post(`${P}/goals`, emp.token, { cycle_id: cycleId, title: 'Aligned to other manager', weightage: 30, parent_goal_id: mgr2GoalId });
@@ -167,6 +168,8 @@ await run(async () => {
   check('minimum peer responses defaults to 2', r.d?.min_peer_responses === 2, r.d);
   r = await put(`${P}/appraisal-configs/${cycleId}`, admin, { min_peer_responses: 0 });
   check('minimum peer responses must be at least 1 (422)', r.s === 422, r);
+  r = await put(`${P}/appraisal-configs/${cycleId}`, admin, { manager_review_due: addDays(today, 7) });
+  check('manager review due before the self review due is rejected', r.s === 400 && /self review/.test(r.d?.detail), r);
   r = await post(`${P}/appraisal-configs/${cycleId}/advance`, emp.token, {});
   check('employee cannot advance phases', r.s === 403, r);
   r = await post(`${P}/appraisal-configs/${cycleId}/advance`, admin, {});
@@ -345,6 +348,8 @@ await run(async () => {
   check('manager cannot schedule with someone outside the team', r.s === 403, r);
   r = await post(`${P}/one-on-ones`, mgr.token, { employee_email: emp.email, scheduled_at: 'tomorrow' });
   check('invalid date rejected (422)', r.s === 422, r);
+  r = await post(`${P}/one-on-ones`, mgr.token, { employee_email: emp.email, scheduled_at: new Date(Date.now() - 86400000).toISOString() });
+  check('1:1 in the past rejected', r.s === 400 && /past/.test(r.d?.detail), r);
   r = await post(`${P}/one-on-ones`, mgr.token, { employee_email: emp.email, scheduled_at: when, duration_minutes: 30, recurrence: 'weekly', agenda: ['Career goals'] });
   check('manager schedules a weekly 1:1 with agenda', r.s === 201 && r.d.status === 'scheduled' && r.d.agenda.length === 1, r.d);
   const mtg = r.d?.id;
@@ -388,8 +393,20 @@ await run(async () => {
   check('manager reschedules', r.s === 200, r);
   r = await get(`${P}/one-on-ones?when=upcoming`, emp.token);
   check('employee upcoming list', r.s === 200 && r.d.length === 1 && r.d[0].id === next?.id, r.d);
+  r = await put(`${P}/one-on-ones/${next?.id}`, mgr.token, { scheduled_at: new Date(Date.now() - 2 * 86400000).toISOString() });
+  check('cannot reschedule a 1:1 into the past', r.s === 400, r);
+  r = await post(`${P}/one-on-ones`, mgr.token, { employee_email: emp.email, scheduled_at: when });
+  const overdue = r.d?.id;
+  await withDb(db => db.collection('one_on_ones').updateOne({ id: overdue }, { $set: { scheduled_at: new Date(Date.now() - 3 * 86400000) } }));
+  r = await get(`${P}/one-on-ones?when=upcoming`, emp.token);
+  const upcomingIds = (r.d || []).map(m => m.id);
+  r = await get(`${P}/one-on-ones?when=past`, emp.token);
+  check('a scheduled 1:1 whose time has passed is listed under Past, not Upcoming', !upcomingIds.includes(overdue) && (r.d || []).some(m => m.id === overdue), { upcomingIds, past: r.d });
+  await del(`${P}/one-on-ones/${overdue}`, mgr.token);
   r = await get('/notifications', emp.token);
   check('employee notified of the 1:1', JSON.stringify(r.d).includes('one_on_one_scheduled'));
+  r = await get('/notifications/unread-count', emp.token);
+  check('unread notification count endpoint answers', r.s === 200 && r.d?.unread_count >= 1, r);
 
   section('PF-3 Continuous feedback');
   r = await post(`${P}/feedback`, emp.token, { to_email: emp.email, type: 'praise', message: 'Me me me' });

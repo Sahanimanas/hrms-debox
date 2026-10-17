@@ -230,6 +230,7 @@ function CheckInForm({ goal, onClose, onSaved }) {
         <div className="space-y-1.5">
           <Label>Status</Label>
           <SimpleSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+          <p className="text-[11px] text-slate-500">Not started, On track and Done follow the progress; choose At risk or Behind to flag a concern.</p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="ci-note">Note</Label>

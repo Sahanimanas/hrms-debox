@@ -104,6 +104,8 @@ export const ITEM_STATUS_STYLES = {
 
 export const SECTION_LABELS = {
   '80C': '80C — PPF, ELSS, LIC, tuition, home-loan principal',
+  '80CCC': '80CCC — pension fund contribution',
+  '80CCD1': '80CCD(1) — employee NPS contribution',
   '80D_self': '80D — health insurance (self & family)',
   '80D_parents': '80D — health insurance (parents)',
   '80CCD1B': '80CCD(1B) — additional NPS',

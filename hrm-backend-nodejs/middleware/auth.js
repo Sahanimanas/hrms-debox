@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { config } = require('../config/config');
 const { getDB } = require('../config/database');
+const { getPolicyDoc, openingBalance } = require('../services/leave/common');
 
 /**
  * Middleware to verify JWT token and attach user to request
@@ -123,12 +124,8 @@ const getCurrentEmployee = async (req, res, next) => {
           department: 'Administration',
           designation: 'System Administrator',
           joining_date: new Date(),
-          leave_balance: {
-            sick_leave: 10,
-            casual_leave: 15,
-            paid_leave: 20,
-            unpaid_leave: 0
-          }
+          // From the leave policy (never above a quota — this used to be a fixed 10 / 15 / 20)
+          leave_balance: openingBalance(await getPolicyDoc(db))
         };
         return next();
       }

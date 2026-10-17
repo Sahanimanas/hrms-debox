@@ -154,20 +154,29 @@ function computeTaxOnIncome(taxableIncome, config) {
   };
 }
 
-// Caps for old-regime deductions (Chapter VI-A and house property)
+// Caps for old-regime deductions (Chapter VI-A and house property).
+// 80D: ₹25,000 each for self/family and parents, ₹50,000 when that person is a senior citizen.
 const DEDUCTION_CAPS = {
   '80C': 150000,
+  '80CCC': 150000,
+  '80CCD1': 150000,
   '80CCD1B': 50000,
   '80D_self': 25000,
-  '80D_parents': 50000,
+  '80D_parents': 25000,
   '24B': 200000,
   '80E': null,
   '80TTA': 10000,
   'OTHER': null
 };
 
+// Sections sharing one limit: 80CCE caps 80C + 80CCC + 80CCD(1) together at ₹1.5 lakh
+const COMBINED_CAPS = [{ code: '80CCE', sections: ['80C', '80CCC', '80CCD1'], cap: 150000 }];
+const SENIOR_80D_CAP = 50000;
+
 const DEDUCTION_LABELS = {
   '80C': '80C (PPF, ELSS, LIC, tuition fees, principal, EPF…)',
+  '80CCC': '80CCC — pension fund contribution',
+  '80CCD1': '80CCD(1) — employee NPS contribution',
   '80CCD1B': '80CCD(1B) — additional NPS',
   '80D_self': '80D — medical insurance (self & family)',
   '80D_parents': '80D — medical insurance (parents)',
@@ -188,21 +197,39 @@ function computeHraExemption({ hraReceived = 0, basicDa = 0, rentPaid = 0, metro
   return round2(Math.max(0, exemption));
 }
 
+/** Cap for one section; 80D doubles for a senior citizen (self or parents). */
+function sectionCap(section, { selfSenior = false, parentsSenior = false } = {}) {
+  if (section === '80D_self' && selfSenior) return SENIOR_80D_CAP;
+  if (section === '80D_parents' && parentsSenior) return SENIOR_80D_CAP;
+  return DEDUCTION_CAPS[section];
+}
+
 /**
  * Apply caps to old-regime deductions.
  * `deductions` = { '80C': n, '80D_self': n, … } (employee PF is added to 80C by the caller).
+ * `options` = { selfSenior, parentsSenior } for the 80D limits.
+ * Section caps apply first, then combined limits (80CCE) in section order.
  * Returns { total, breakdown: { section: allowed } }.
  */
-function capDeductions(deductions = {}) {
+function capDeductions(deductions = {}, options = {}) {
   const breakdown = {};
-  let total = 0;
-  for (const [section, cap] of Object.entries(DEDUCTION_CAPS)) {
+  for (const section of Object.keys(DEDUCTION_CAPS)) {
     const claimed = Math.max(0, Number(deductions[section]) || 0);
     if (!claimed) continue;
-    const allowed = cap == null ? claimed : Math.min(claimed, cap);
-    breakdown[section] = round2(allowed);
-    total += allowed;
+    const cap = sectionCap(section, options);
+    breakdown[section] = round2(cap == null ? claimed : Math.min(claimed, cap));
   }
+  for (const group of COMBINED_CAPS) {
+    let left = group.cap;
+    for (const section of group.sections) {
+      if (breakdown[section] == null) continue;
+      const allowed = Math.min(breakdown[section], left);
+      left -= allowed;
+      if (allowed > 0) breakdown[section] = round2(allowed);
+      else delete breakdown[section];
+    }
+  }
+  const total = Object.values(breakdown).reduce((t, v) => t + v, 0);
   return { total: round2(total), breakdown };
 }
 
@@ -212,7 +239,7 @@ function capDeductions(deductions = {}) {
  *  hraExemption, professionalTax: annual (old regime only)
  *  deductions: old-regime claims by section (see DEDUCTION_CAPS)
  */
-function computeAnnualTax({ regime = 'new', config, grossSalary = 0, hraExemption = 0, professionalTax = 0, deductions = {} }) {
+function computeAnnualTax({ regime = 'new', config, grossSalary = 0, hraExemption = 0, professionalTax = 0, deductions = {}, capOptions = {} }) {
   const gross = Math.max(0, round2(grossSalary));
   const isOld = regime === 'old';
   const standardDeduction = Math.min(gross, config.standard_deduction || 0);
@@ -221,7 +248,7 @@ function computeAnnualTax({ regime = 'new', config, grossSalary = 0, hraExemptio
     standard_deduction: round2(standardDeduction),
     professional_tax: isOld ? round2(professionalTax) : 0
   };
-  const chapterVia = isOld ? capDeductions(deductions) : { total: 0, breakdown: {} };
+  const chapterVia = isOld ? capDeductions(deductions, capOptions) : { total: 0, breakdown: {} };
   const taxable = Math.max(0, gross - exemptions.hra - exemptions.standard_deduction - exemptions.professional_tax - chapterVia.total);
   const taxableIncome = roundRupee(taxable);
   const tax = computeTaxOnIncome(taxableIncome, config);
@@ -435,7 +462,9 @@ module.exports = {
   computeAnnualTax,
   computeHraExemption,
   capDeductions,
+  sectionCap,
   DEDUCTION_CAPS,
+  COMBINED_CAPS,
   DEDUCTION_LABELS,
   monthlyTds,
   computePF,

@@ -379,31 +379,29 @@ class HRMSSeeder {
   async seedHolidays() {
     console.log('🎉 Creating holidays...');
     const year = new Date().getFullYear();
+    // Dates as 'YYYY-MM-DD' with a uuid id, like routes/holidays.js writes them.
+    // One calendar for everyone: /api/holidays isn't organisation-scoped, so a
+    // copy per organisation showed every holiday twice.
     const holidayList = [
-      { name: 'New Year', date: new Date(`${year}-01-01`), type: 'public' },
-      { name: 'Republic Day', date: new Date(`${year}-01-26`), type: 'public' },
-      { name: 'Holi', date: new Date(`${year}-03-14`), type: 'public' },
-      { name: 'Independence Day', date: new Date(`${year}-08-15`), type: 'public' },
-      { name: 'Gandhi Jayanti', date: new Date(`${year}-10-02`), type: 'public' },
-      { name: 'Diwali', date: new Date(`${year}-11-01`), type: 'public' },
-      { name: 'Christmas', date: new Date(`${year}-12-25`), type: 'public' }
+      { name: 'New Year', date: `${year}-01-01`, type: 'public' },
+      { name: 'Republic Day', date: `${year}-01-26`, type: 'public' },
+      { name: 'Holi', date: `${year}-03-14`, type: 'public' },
+      { name: 'Independence Day', date: `${year}-08-15`, type: 'public' },
+      { name: 'Gandhi Jayanti', date: `${year}-10-02`, type: 'public' },
+      { name: 'Diwali', date: `${year}-11-01`, type: 'public' },
+      { name: 'Christmas', date: `${year}-12-25`, type: 'public' }
     ];
 
-    const holidays = [];
-    for (const org of this.organizations) {
-      for (const h of holidayList) {
-        holidays.push({
-          _id: new ObjectId(),
-          organization_id: org._id.toString(),
-          name: h.name,
-          date: h.date,
-          type: h.type,
-          description: `${h.name} holiday`,
-          created_at: new Date(),
-          updated_at: new Date()
-        });
-      }
-    }
+    const holidays = holidayList.map(h => ({
+      _id: new ObjectId(),
+      id: crypto.randomUUID(),
+      name: h.name,
+      date: h.date,
+      type: h.type,
+      description: `${h.name} holiday`,
+      created_at: new Date(),
+      updated_at: new Date()
+    }));
     await this.db.collection('holidays').insertMany(holidays);
     console.log(`✅ Created ${holidays.length} holidays`);
   }

@@ -2,9 +2,10 @@
  * Form 16 Part B figures for one employee and FY, from locked/paid payslips (PY-6).
  */
 
-const { computeAnnualTax, computeHraExemption, round2, DEDUCTION_LABELS } = require('./statutory');
+const { computeAnnualTax, computeHraExemption, round2, ageOn, fyStartYear, DEDUCTION_LABELS } = require('./statutory');
 const { taxConfigFor } = require('./settings');
 const { taxInputsFromDeclaration } = require('./declarations');
+const { findEmployeeByUid } = require('../lifecycle/common');
 
 async function buildForm16Data(db, uid, fy, settings) {
   const slips = await db.collection('payslips')
@@ -26,13 +27,17 @@ async function buildForm16Data(db, uid, fy, settings) {
 
   let hraExemption = 0;
   let deductions = {};
+  let capOptions = {};
   if (regime === 'old') {
     const declaration = await db.collection('tax_declarations').findOne({ employee_uid: uid, financial_year: fy }, { projection: { _id: 0 } });
     const inputs = taxInputsFromDeclaration(declaration, settings);
     hraExemption = computeHraExemption({ hraReceived: hra, basicDa, rentPaid: inputs.rentPaid, metro: inputs.metro });
     deductions = { ...inputs.deductions, '80C': round2((inputs.deductions['80C'] || 0) + pf) };
+    const employee = await findEmployeeByUid(db, uid);
+    const age = ageOn(employee?.date_of_birth, new Date(Date.UTC(fyStartYear(fy) + 1, 2, 31)));
+    capOptions = { ...inputs.capOptions, selfSenior: age != null && age >= 60 };
   }
-  const tax = computeAnnualTax({ regime, config: taxCfg.config[regime], grossSalary: gross, hraExemption, professionalTax: pt, deductions });
+  const tax = computeAnnualTax({ regime, config: taxCfg.config[regime], grossSalary: gross, hraExemption, professionalTax: pt, deductions, capOptions });
   const statutory = await db.collection('employee_statutory').findOne({ employee_uid: uid }, { projection: { _id: 0 } });
 
   return {

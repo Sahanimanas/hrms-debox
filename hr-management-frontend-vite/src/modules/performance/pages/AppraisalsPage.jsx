@@ -532,7 +532,10 @@ function ConfigForm({ config, onSaved }) {
     manager_review_due: config.manager_review_due || '',
   }));
   const [saving, setSaving] = useState(false);
+  const dueError = form.self_review_due && form.manager_review_due && form.manager_review_due < form.self_review_due
+    ? 'Manager review due date cannot be before the self review due date' : null;
   const save = async () => {
+    if (dueError) return toast.error(dueError);
     const body = {
       rating_scale: form.rating_scale.map(s => ({ value: s.value, label: s.label.trim() || String(s.value) })),
       self_review_due: form.self_review_due || null,
@@ -608,7 +611,8 @@ function ConfigForm({ config, onSaved }) {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="mrd">Manager review due</Label>
-          <Input id="mrd" type="date" value={form.manager_review_due} onChange={(e) => setForm(f => ({ ...f, manager_review_due: e.target.value }))} />
+          <Input id="mrd" type="date" min={form.self_review_due || undefined} value={form.manager_review_due} aria-invalid={!!dueError} onChange={(e) => setForm(f => ({ ...f, manager_review_due: e.target.value }))} />
+          {dueError && <p className="text-[11px] text-red-600">{dueError}</p>}
         </div>
       </div>
       <label className="flex items-center gap-2 text-sm">

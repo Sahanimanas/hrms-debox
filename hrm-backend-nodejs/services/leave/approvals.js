@@ -259,8 +259,12 @@ async function decideAction(db, { leave, user, actorName, action, comments, sett
   if (!['pending', 'manager_approved'].includes(leave.status)) {
     throw new ApprovalError(400, 'Leave already processed');
   }
-  if (leave.employee_email === user.email && user.role !== 'admin') {
-    throw new ApprovalError(403, 'You cannot approve or reject your own leave');
+  // Nobody approves their own leave, admins included (same rule as profile change
+  // requests). An admin may still reject (withdraw) their own.
+  if (leave.employee_email === user.email && (action === 'approve' || user.role !== 'admin')) {
+    throw new ApprovalError(403, action === 'approve'
+      ? 'You cannot approve your own leave; another approver must act on it'
+      : 'You cannot approve or reject your own leave');
   }
 
   const chain = chainOf(leave);
@@ -356,7 +360,8 @@ function decorateForApprover(leave, user, delegations, settings) {
   const chain = chainOf(leave);
   const step = currentStep(chain);
   let authority = null;
-  if (step && ['pending', 'manager_approved'].includes(leave.status) && (leave.employee_email !== user.email || user.role === 'admin')) {
+  const isOwn = leave.employee_email === user.email;
+  if (step && ['pending', 'manager_approved'].includes(leave.status) && !isOwn) {
     authority = resolveAuthority({ user, step, delegations, settings, leave });
   }
   return {
@@ -364,6 +369,7 @@ function decorateForApprover(leave, user, delegations, settings) {
     approval_chain: chain,
     ...currentFields(chain),
     can_act: !!authority,
+    is_own: isOwn,
     acting_as: authority?.mode || null,
     on_behalf_of: authority?.delegation ? { email: authority.delegation.delegator_email, name: authority.delegation.delegator_name } : null
   };

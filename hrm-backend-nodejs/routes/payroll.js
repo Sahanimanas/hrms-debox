@@ -4,94 +4,24 @@ const { getDB } = require('../config/database');
 const { authenticate, getCurrentEmployee } = require('../middleware/auth');
 const { requireRole, validate } = require('../middleware/roleCheck');
 const { schemas, UserRole, LeaveStatus } = require('../models/schemas');
-const { generateUUID, toISOString, getDaysInMonth, getMonthName } = require('../utils/helpers');
+const { generateUUID, toISOString, getDaysInMonth, getMonthName, localParts } = require('../utils/helpers');
 const { sendEmailNotification } = require('../services/emailService');
 const { generateSalarySlipEmail, generateDetailedSalarySlipEmail } = require('../utils/emailTemplates');
-const { saveStructure } = require('../services/payroll/structures');
-
-// Comp-Off Routes
-
-/**
- * POST /api/comp-off/grant
- * Grant comp-off to employee
- */
-router.post('/comp-off/grant', authenticate, requireRole([UserRole.ADMIN, UserRole.MANAGER]), validate(schemas.compOffGrant), async (req, res) => {
-  try {
-    const db = getDB();
-    const { user_id, days, work_date, reason } = req.validatedBody;
-
-    // Find user
-    const user = await db.collection('users').findOne(
-      { employee_id: user_id },
-      { projection: { _id: 0 } }
-    );
-    if (!user) {
-      return res.status(404).json({ detail: 'User not found' });
-    }
-
-    // Find employee
-    const employee = await db.collection('employees').findOne(
-      { email: user.email },
-      { projection: { _id: 0 } }
-    );
-    if (!employee) {
-      return res.status(404).json({ detail: 'Employee not found' });
-    }
-
-    // Normalize work_date
-    const workDateObj = new Date(work_date);
-
-    if (days <= 0) {
-      return res.status(400).json({ detail: 'Days must be > 0' });
-    }
-
-    // Create comp-off record
-    const compOffRecord = {
-      id: generateUUID(),
-      user_id,
-      employee_id: employee.employee_id,
-      employee_email: employee.email,
-      employee_name: employee.full_name,
-      days,
-      used: 0,
-      work_date: toISOString(workDateObj),
-      reason,
-      granted_by: req.user.email,
-      granted_by_role: req.user.role,
-      granted_date: new Date(),
-      expiry_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90 days
-    };
-
-    await db.collection('comp_off_records').insertOne(compOffRecord);
-
-    res.json({
-      message: 'Comp-off granted successfully',
-      employee: employee.full_name,
-      added_days: days
-    });
-  } catch (error) {
-    console.error('Grant comp-off error:', error);
-    res.status(500).json({ detail: 'Internal server error' });
-  }
-});
+const { saveStructure, structureKeys, DEFAULT_CTC_COMPONENTS } = require('../services/payroll/structures');
+const { findEmployeeByUid } = require('../services/lifecycle/common');
+const engine = require('../services/payroll/engine');
+const { round2 } = require('../services/payroll/statutory');
 
 /**
- * GET /api/comp-off/records
- * Get comp-off records
+ * Employee by any identifier the UI may send (employee code, uuid id or email), so
+ * employees without an employee code still resolve. _id is kept for structureKeys
+ * (seeded structures are keyed by it) and never sent back.
  */
-router.get('/comp-off/records', authenticate, requireRole([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
-  try {
-    const db = getDB();
-    const records = await db.collection('comp_off_records')
-      .find({}, { projection: { _id: 0 } })
-      .toArray();
+const findEmployee = (db, ref) => findEmployeeByUid(db, ref);
 
-    res.json(records);
-  } catch (error) {
-    console.error('Get comp-off records error:', error);
-    res.status(500).json({ detail: 'Internal server error' });
-  }
-});
+// Comp-off (grant, records, requests) lives in routes/compoffRoutes.js at /api/comp-off.
+// The old handlers here were mounted first and shadowed it: they required a
+// users-collection "user_id" (422 for every grant) and wrote to an unused collection.
 
 // Salary Template Routes
 
@@ -175,10 +105,7 @@ router.post('/salary-structure/:employeeId', authenticate, requireRole([UserRole
     const structure = req.body;
 
     // Find employee
-    const employee = await db.collection('employees').findOne(
-      { employee_id: employeeId },
-      { projection: { _id: 0 } }
-    );
+    const employee = await findEmployee(db, employeeId);
     if (!employee) {
       return res.status(404).json({ detail: 'Employee not found' });
     }
@@ -219,40 +146,27 @@ router.get('/salary-structure/:employeeId', authenticate, async (req, res) => {
     const db = getDB();
     const { employeeId } = req.params;
 
+    const employee = await findEmployee(db, employeeId);
+
     // Permission check
     if (![UserRole.ADMIN, UserRole.MANAGER].includes(req.user.role)) {
-      const employee = await db.collection('employees').findOne(
-        { employee_id: employeeId },
-        { projection: { email: 1 } }
-      );
       if (!employee || employee.email !== req.user.email) {
         return res.status(403).json({ detail: 'Not authorized' });
       }
     }
 
     const structure = await db.collection('salary_structures').findOne(
-      { employee_id: employeeId },
+      { employee_id: { $in: employee ? structureKeys(employee) : [employeeId] } },
       { projection: { _id: 0 } }
     );
 
     if (!structure) {
       // Return default structure
-      const employee = await db.collection('employees').findOne(
-        { employee_id: employeeId },
-        { projection: { monthly_salary: 1 } }
-      );
-
       if (employee?.monthly_salary) {
-        const defaultComponents = [
-          { name: 'Basic Pay', amount: 50, is_percentage: true, calculation_base: 'ctc', type: 'earning', order: 1 },
-          { name: 'House Rent Allowance', amount: 25, is_percentage: true, calculation_base: 'ctc', type: 'earning', order: 2 },
-          { name: 'LTA Allowance', amount: 2.5, is_percentage: true, calculation_base: 'ctc', type: 'earning', order: 3 },
-          { name: 'Other Allowance', amount: 22.5, is_percentage: true, calculation_base: 'ctc', type: 'earning', order: 4 }
-        ];
         return res.json({
           employee_id: employeeId,
           basic_salary: employee.monthly_salary,
-          components: defaultComponents,
+          components: DEFAULT_CTC_COMPONENTS,
           gross_salary: employee.monthly_salary,
           total_deductions: 0,
           net_salary: employee.monthly_salary
@@ -281,10 +195,7 @@ router.post('/payroll/send-salary-slip', authenticate, requireRole([UserRole.ADM
     const { employee_id, month } = req.body;
 
     // Get employee
-    const employee = await db.collection('employees').findOne(
-      { employee_id },
-      { projection: { _id: 0 } }
-    );
+    const employee = await findEmployee(db, employee_id);
     if (!employee) {
       return res.status(404).json({ detail: 'Employee not found' });
     }
@@ -389,16 +300,13 @@ router.post('/payroll/send-detailed-salary-slip', authenticate, requireRole([Use
     } = req.body;
 
     // Get employee and salary structure
-    const employee = await db.collection('employees').findOne(
-      { employee_id },
-      { projection: { _id: 0 } }
-    );
+    const employee = await findEmployee(db, employee_id);
     if (!employee) {
       return res.status(404).json({ detail: 'Employee not found' });
     }
 
     const salaryStructure = await db.collection('salary_structures').findOne(
-      { employee_id },
+      { employee_id: { $in: structureKeys(employee) } },
       { projection: { _id: 0 } }
     );
     if (!salaryStructure) {
@@ -672,10 +580,7 @@ router.get('/payroll/employee-report/:employeeId/:month', authenticate, async (r
     const { employeeId, month } = req.params;
 
     // Get employee
-    const employee = await db.collection('employees').findOne(
-      { employee_id: employeeId },
-      { projection: { _id: 0 } }
-    );
+    const employee = await findEmployee(db, employeeId);
     if (!employee) {
       return res.status(404).json({ detail: 'Employee not found' });
     }
@@ -750,75 +655,100 @@ router.get('/payroll/employee-report/:employeeId/:month', authenticate, async (r
 
 /**
  * GET /api/payroll/monthly-summary/:month
- * Get monthly payroll summary (admin only)
+ * Get monthly payroll summary (admin only).
+ *
+ * Same numbers as Payroll Runs: the month's run payslips when a run exists, else a
+ * preview computed by the payroll engine (salary structure → monthly_salary, PY-2
+ * loss of pay from attendance, PF / ESI / PT / LWF / TDS). Nothing is saved.
  */
 router.get('/payroll/monthly-summary/:month', authenticate, requireRole([UserRole.ADMIN]), async (req, res) => {
   try {
     const db = getDB();
     const { month } = req.params;
-
-    // Parse month
-    const [year, monthNum] = month.split('-');
-    const yearInt = parseInt(year, 10);
-    const monthInt = parseInt(monthNum, 10);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      return res.status(422).json({ detail: 'month must be YYYY-MM' });
+    }
+    const [yearInt, monthInt] = month.split('-').map(Number);
     const totalDaysInMonth = getDaysInMonth(yearInt, monthInt);
 
-    const employees = await db.collection('employees')
-      .find({}, { projection: { _id: 0 } })
-      .toArray();
-
-    const payrollSummary = [];
-    let totalPayroll = 0;
-
-    for (const employee of employees) {
-      if (!employee.monthly_salary) continue;
-
-      // Get leaves
-      const startOfMonth = new Date(yearInt, monthInt - 1, 1);
-      const endOfMonth = new Date(yearInt, monthInt, 0, 23, 59, 59);
-
-      const leaves = await db.collection('leaves')
-        .find({
-          employee_id: employee.id,
-          start_date: { $gte: startOfMonth.toISOString(), $lte: endOfMonth.toISOString() }
-        }, { projection: { _id: 0 } })
-        .toArray();
-
-      const approvedLeaves = leaves.filter(l => l.status === LeaveStatus.APPROVED);
-      const unpaidLeaves = approvedLeaves.filter(l => l.leave_type === 'Unpaid Leave');
-
-      const totalLeaveDays = approvedLeaves.reduce((sum, l) => sum + l.days_count, 0);
-      const unpaidDays = unpaidLeaves.reduce((sum, l) => sum + l.days_count, 0);
-      const payableDays = totalDaysInMonth - unpaidDays;
-
-      const baseSalary = employee.monthly_salary;
-      const perDaySalary = baseSalary / totalDaysInMonth;
-      const unpaidDeduction = unpaidDays * perDaySalary;
-      const netSalary = baseSalary - unpaidDeduction;
-
-      totalPayroll += netSalary;
-
-      payrollSummary.push({
-        employee_id: employee.id,
-        employee_name: employee.full_name,
-        department: employee.department,
-        designation: employee.designation,
-        base_salary: baseSalary,
-        total_days_in_month: totalDaysInMonth,
-        payable_days: payableDays,
-        leave_days: totalLeaveDays,
-        unpaid_days: unpaidDays,
-        unpaid_deduction: unpaidDeduction,
-        net_salary: netSalary
-      });
+    const run = await db.collection('payroll_runs').findOne({ month }, { projection: { _id: 0, id: 1, status: 1, skipped: 1 } });
+    let payslips;
+    let skipped;
+    if (run) {
+      payslips = await db.collection('payslips').find({ run_id: run.id }, { projection: { _id: 0 } }).toArray();
+      skipped = run.skipped || [];
+    } else {
+      ({ payslips, skipped } = await engine.previewMonth(db, month));
     }
+    payslips.sort((a, b) => String(a.employee_name || '').localeCompare(String(b.employee_name || '')));
+
+    // Approved leave days in the month, per employee
+    const leaves = await db.collection('leaves')
+      .find({ status: LeaveStatus.APPROVED, employee_email: { $in: payslips.map(p => p.employee_email) } }, { projection: { _id: 0, employee_email: 1, dates: 1, is_half_day: 1 } })
+      .toArray();
+    const leaveDays = {};
+    for (const leave of leaves) {
+      const inMonth = (leave.dates || []).filter(d => {
+        const parsed = new Date(d);
+        return !isNaN(parsed) && localParts(parsed).date.slice(0, 7) === month;
+      }).length;
+      if (inMonth) leaveDays[leave.employee_email] = (leaveDays[leave.employee_email] || 0) + (leave.is_half_day ? inMonth * 0.5 : inMonth);
+    }
+
+    const current = localParts(new Date()).date.slice(0, 7);
+    const byType = (p, type) => round2((p.deductions || []).filter(d => d.type === type).reduce((s, d) => s + d.amount, 0));
+    const employees = payslips.map(p => {
+      const deductions = {
+        lop: round2(p.lop_amount || 0),
+        pf: byType(p, 'pf'),
+        esi: byType(p, 'esi'),
+        pt: byType(p, 'pt'),
+        lwf: byType(p, 'lwf'),
+        tds: byType(p, 'tds'),
+        loan: byType(p, 'loan'),
+        other: byType(p, 'structure') + byType(p, 'other_deduction')
+      };
+      // Older payslips have no attendance coverage: a past month is closed
+      const period = p.attendance_period || (month < current ? 'closed' : month > current ? 'future' : 'in_progress');
+      return {
+        employee_id: p.employee_code || p.employee_uid,
+        employee_uid: p.employee_uid,
+        employee_code: p.employee_code || null,
+        employee_name: p.employee_name,
+        department: p.department,
+        designation: p.designation,
+        base_salary: p.monthly_gross,
+        gross_earnings: p.gross_earnings,
+        total_days_in_month: p.days_in_month || totalDaysInMonth,
+        payable_days: p.payable_days,
+        leave_days: leaveDays[p.employee_email] || 0,
+        unpaid_days: p.lop_days,
+        unpaid_deduction: deductions.lop,
+        deductions,
+        statutory_deductions: round2(deductions.pf + deductions.esi + deductions.pt + deductions.lwf + deductions.tds),
+        total_deductions: p.total_deductions,
+        net_salary: p.net_pay,
+        period,
+        elapsed_days: p.elapsed_days ?? (period === 'closed' ? p.days_in_month : null),
+        payable_days_to_date: p.payable_days_to_date ?? null,
+        unmarked_days: p.unmarked_days ?? null,
+        unmarked_is_lop: (p.lop_breakdown?.no_attendance || 0) > 0,
+        salary_source: p.salary_source || null,
+        warnings: p.warnings || []
+      };
+    });
 
     res.json({
       month,
+      source: run ? `run_${run.status}` : 'preview',
+      run_id: run?.id || null,
       total_days_in_month: totalDaysInMonth,
-      total_employees: payrollSummary.length,
-      total_payroll: totalPayroll,
-      employees: payrollSummary
+      total_employees: employees.length,
+      total_gross: round2(employees.reduce((s, e) => s + (e.gross_earnings || 0), 0)),
+      total_deductions: round2(employees.reduce((s, e) => s + (e.total_deductions || 0), 0)),
+      total_payroll: round2(employees.reduce((s, e) => s + (e.net_salary || 0), 0)),
+      employees,
+      skipped
     });
   } catch (error) {
     console.error('Get monthly payroll summary error:', error);

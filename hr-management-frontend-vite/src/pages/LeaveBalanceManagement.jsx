@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { format } from 'date-fns';
+import { isCompOffKey } from '@/modules/leave/lib';
 
 const LeaveBalanceManagement = () => {
   const [employees, setEmployees] = useState([]);
@@ -63,7 +64,7 @@ const LeaveBalanceManagement = () => {
     api.get('/v2/leave/types')
       .then((res) => {
         const types = (res.data?.types || [])
-          .filter((t) => t.tracks_balance)
+          .filter((t) => t.tracks_balance && !isCompOffKey(t.key))
           .map((t) => ({ key: t.key, label: t.leave_type }));
         if (types.length) setLeaveTypes([...types, { key: 'comp_off', label: 'Comp Off' }]);
       })
@@ -156,8 +157,10 @@ const LeaveBalanceManagement = () => {
     }
     setSubmitting(true);
     try {
+      // Email is the one identifier every employee has (seeded ones may have no employee code)
+      const uid = selectedEmployee.email || selectedEmployee.employee_id || selectedEmployee.id;
       await api.post(
-        `/admin/leave-credit/leave-balance/update/${selectedEmployee.employee_id}`,
+        `/admin/leave-credit/leave-balance/update/${encodeURIComponent(uid)}`,
         individualAction
       );
       toast.success(`Successfully updated ${selectedEmployee.full_name}'s leave balance`);
@@ -300,7 +303,7 @@ const LeaveBalanceManagement = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredEmployees.map((employee) => (
           <Card
-            key={employee.id}
+            key={employee.email || employee.id}
             className="border-slate-100 shadow-sm hover:shadow-md transition-all"
           >
             <CardContent className="p-6">
@@ -317,7 +320,7 @@ const LeaveBalanceManagement = () => {
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-slate-900 text-lg truncate">{employee.full_name}</h3>
                     <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                      {employee.employee_id}
+                      {employee.employee_id || employee.employee_code || '—'}
                     </span>
                   </div>
                   <Badge className="mt-1 capitalize">{employee.role}</Badge>
@@ -409,7 +412,7 @@ const LeaveBalanceManagement = () => {
                 </div>
                 <div>
                   <p className="font-medium text-slate-900">{selectedEmployee.full_name}</p>
-                  <p className="text-sm text-slate-500">{selectedEmployee.employee_id}</p>
+                  <p className="text-sm text-slate-500">{selectedEmployee.employee_id || selectedEmployee.employee_code || selectedEmployee.email}</p>
                 </div>
               </div>
 

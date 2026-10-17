@@ -150,8 +150,9 @@ export default defineConfig({
   server: {
     allowedHosts: true, // allow all hosts
     proxy: {
-      // Forward API calls from the Vite dev-server to the backend
-      "/api": {
+      // Forward API calls from the Vite dev-server to the backend. "/api/" (with the
+      // slash) so app pages whose path merely starts with "api" aren't proxied too.
+      "/api/": {
         target: "http://localhost:4001",
         changeOrigin: true,
       },

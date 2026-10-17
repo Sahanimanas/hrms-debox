@@ -101,9 +101,13 @@ export const formatPhone = (iso, national) => {
 
 /** Error message for a stored/typed phone value, or null when it's fine. */
 export function phoneError(value, { required = false } = {}) {
+  const raw = String(value ?? '').trim();
+  // parsePhone() keeps only the digits, so check the raw text first: "abcxyz"
+  // would otherwise parse to an empty number and pass an optional field
+  if (raw && !/^\+?[\d\s().-]+$/.test(raw)) return 'Use digits only';
   const { iso, national } = parsePhone(value);
   const country = getCountry(iso);
-  if (!national) return required ? 'Phone number is required' : null;
+  if (!national) return raw ? 'Enter a valid phone number' : required ? 'Phone number is required' : null;
   if (!/^\d+$/.test(national)) return 'Use digits only';
   if (!country.leadingZero && national.startsWith('0')) return 'Leave out the leading 0';
   if (national.length < country.min || national.length > country.max) {

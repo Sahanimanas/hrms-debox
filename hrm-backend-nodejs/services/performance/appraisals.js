@@ -338,6 +338,10 @@ router.put('/appraisal-configs/:cycleId', requireRole(['admin']), validate(confi
     }));
   }
   for (const k of ['self_review_due', 'manager_review_due']) if (data[k] === '') data[k] = null;
+  // Managers review after the self review, so their deadline can't come first
+  const selfDue = data.self_review_due !== undefined ? data.self_review_due : existing?.self_review_due;
+  const managerDue = data.manager_review_due !== undefined ? data.manager_review_due : existing?.manager_review_due;
+  if (selfDue && managerDue && managerDue < selfDue) fail(400, 'Manager review due date cannot be before the self review due date');
 
   if (existing) {
     await db.collection('appraisal_configs').updateOne({ cycle_id: cycle.id }, { $set: { ...data, updated_at: now() } });

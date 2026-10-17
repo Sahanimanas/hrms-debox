@@ -28,6 +28,66 @@ const notificationConfig = {
   general: { icon: Bell, color: 'text-slate-500', bg: 'bg-slate-50' }
 };
 
+// One shared unread-count poll for every mounted bell (the desktop top bar and the
+// mobile header are both mounted). It only polls while the tab is visible and
+// online, backs off after a failure, and logs a failure streak once instead of
+// every 30 seconds per bell.
+const POLL_MS = 30000;
+const MAX_POLL_MS = 5 * 60000;
+const unreadPoll = { count: 0, listeners: new Set(), timer: null, delay: POLL_MS, failing: false, inFlight: null };
+const canPoll = () => !document.hidden && navigator.onLine !== false;
+
+const refreshUnreadCount = () => {
+  if (unreadPoll.inFlight) return unreadPoll.inFlight;
+  unreadPoll.inFlight = api.get('/notifications/unread-count')
+    .then((response) => {
+      unreadPoll.count = response.data?.unread_count || 0;
+      unreadPoll.failing = false;
+      unreadPoll.delay = POLL_MS;
+      unreadPoll.listeners.forEach(fn => fn(unreadPoll.count));
+    })
+    .catch((error) => {
+      // A 401 is handled by the API client (back to the login page)
+      if (!unreadPoll.failing && error.response?.status !== 401) {
+        console.warn('Could not refresh the unread notification count; retrying later.', error.message);
+      }
+      unreadPoll.failing = true;
+      unreadPoll.delay = Math.min(unreadPoll.delay * 2, MAX_POLL_MS);
+    })
+    .finally(() => { unreadPoll.inFlight = null; });
+  return unreadPoll.inFlight;
+};
+
+const schedulePoll = () => {
+  clearTimeout(unreadPoll.timer);
+  if (!unreadPoll.listeners.size) return;
+  unreadPoll.timer = setTimeout(async () => {
+    if (canPoll()) await refreshUnreadCount();
+    schedulePoll();
+  }, unreadPoll.delay);
+};
+
+const onWake = () => { if (canPoll()) refreshUnreadCount().then(schedulePoll); };
+
+const subscribeUnreadCount = (listener) => {
+  unreadPoll.listeners.add(listener);
+  if (unreadPoll.listeners.size === 1) {
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('online', onWake);
+    refreshUnreadCount().then(schedulePoll);
+  } else {
+    listener(unreadPoll.count);
+  }
+  return () => {
+    unreadPoll.listeners.delete(listener);
+    if (!unreadPoll.listeners.size) {
+      clearTimeout(unreadPoll.timer);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('online', onWake);
+    }
+  };
+};
+
 const NotificationBell = () => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -35,15 +95,6 @@ const NotificationBell = () => {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
 
-  // Fetch unread count
-  const fetchUnreadCount = useCallback(async () => {
-    try {
-      const response = await api.get('/notifications/unread-count');
-      setUnreadCount(response.data.unread_count || 0);
-    } catch (error) {
-      console.error('Failed to fetch unread count:', error);
-    }
-  }, []);
 
   // Fetch notifications
   const fetchNotifications = useCallback(async () => {
@@ -58,12 +109,8 @@ const NotificationBell = () => {
     }
   }, []);
 
-  // Poll for unread count every 30 seconds
-  useEffect(() => {
-    fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, [fetchUnreadCount]);
+  // Unread count from the shared poll (every 30 seconds while the tab is visible)
+  useEffect(() => subscribeUnreadCount(setUnreadCount), []);
 
   // Fetch notifications when popover opens
   useEffect(() => {
@@ -80,6 +127,7 @@ const NotificationBell = () => {
         prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
       );
       setUnreadCount(prev => Math.max(0, prev - 1));
+      refreshUnreadCount(); // keep the other bell in sync
     } catch (error) {
       console.error('Failed to mark as read:', error);
     }
@@ -91,6 +139,7 @@ const NotificationBell = () => {
       await api.put('/notifications/read-all');
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
+      refreshUnreadCount(); // keep the other bell in sync
     } catch (error) {
       console.error('Failed to mark all as read:', error);
     }
@@ -105,6 +154,7 @@ const NotificationBell = () => {
       setNotifications(prev => prev.filter(n => n.id !== notificationId));
       if (notification && !notification.read) {
         setUnreadCount(prev => Math.max(0, prev - 1));
+        refreshUnreadCount(); // keep the other bell in sync
       }
     } catch (error) {
       console.error('Failed to delete notification:', error);

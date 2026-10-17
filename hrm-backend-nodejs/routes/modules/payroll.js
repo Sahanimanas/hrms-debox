@@ -233,6 +233,7 @@ router.get('/meta', h(async (req, res) => {
     lwf_states: Object.keys(statutory.LWF_STATES),
     sections: declarationsSvc.SECTION_INFO,
     deduction_caps: statutory.DEDUCTION_CAPS,
+    combined_caps: statutory.COMBINED_CAPS,
     one_off_types: ONE_OFF_TYPES,
     declaration_window_open: settings.declaration_window_open !== false,
     proof_deadline: settings.proof_deadline || null,
@@ -308,6 +309,8 @@ const taxCalcSchema = Joi.object({
   rent_paid_annual: Joi.number().min(0).max(1000000000).default(0),
   metro: Joi.boolean().default(false),
   professional_tax: Joi.number().min(0).max(100000).default(0),
+  senior_citizen: Joi.boolean().default(false),
+  parents_senior_citizen: Joi.boolean().default(false),
   deductions: Joi.object(Object.fromEntries(Object.keys(statutory.DEDUCTION_CAPS).map(k => [k, Joi.number().min(0).max(1000000000)]))).default({})
 });
 
@@ -321,7 +324,8 @@ router.post('/calculate/tax', validate(taxCalcSchema), h(async (req, res) => {
   const result = {};
   for (const regime of ['new', 'old']) {
     result[regime] = statutory.computeAnnualTax({
-      regime, config: cfg.config[regime], grossSalary: b.annual_gross, hraExemption, professionalTax: b.professional_tax, deductions: b.deductions
+      regime, config: cfg.config[regime], grossSalary: b.annual_gross, hraExemption, professionalTax: b.professional_tax, deductions: b.deductions,
+      capOptions: { selfSenior: b.senior_citizen, parentsSenior: b.parents_senior_citizen }
     });
   }
   res.json({ financial_year: fy, slabs_fy: cfg.fy, fallback: cfg.fallback, ...result, better: result.old.total < result.new.total ? 'old' : 'new' });
@@ -820,6 +824,7 @@ const declarationSchema = Joi.object({
   financial_year: Joi.string().pattern(statutory.FY_RE).required(),
   tax_regime: Joi.string().valid('new', 'old').required(),
   metro_city: Joi.boolean().default(false),
+  parents_senior_citizen: Joi.boolean().default(false),
   items: Joi.array().items(itemSchema).max(50).default([])
 });
 
@@ -831,8 +836,15 @@ const emptyDeclaration = (employee, fy, regime) => ({
   financial_year: fy,
   tax_regime: regime,
   metro_city: false,
+  parents_senior_citizen: false,
   items: []
 });
+
+// Employee is a senior citizen (60+) by the end of the FY: higher 80D (self) limit
+const isSeniorInFy = (employee, fy) => {
+  const age = statutory.ageOn(employee?.date_of_birth, new Date(Date.UTC(statutory.fyStartYear(fy) + 1, 2, 31)));
+  return age != null && age >= 60;
+};
 
 router.get('/declarations/my', h(async (req, res) => {
   const db = getDB();
@@ -845,7 +857,7 @@ router.get('/declarations/my', h(async (req, res) => {
     || emptyDeclaration(employee, fy, st?.tax_regime || 'new');
   res.json({
     ...declaration,
-    summary: declarationsSvc.summarize(declaration, settings),
+    summary: declarationsSvc.summarize(declaration, settings, { selfSenior: isSeniorInFy(employee, fy) }),
     window_open: settings.declaration_window_open !== false,
     proof_deadline: settings.proof_deadline || null
   });
@@ -900,7 +912,7 @@ router.put('/declarations/my', validate(declarationSchema), h(async (req, res) =
   await db.collection('tax_declarations').updateOne(
     { employee_uid: uid, financial_year: b.financial_year },
     {
-      $set: { tax_regime: b.tax_regime, metro_city: b.metro_city, items, employee_email: employee.email, employee_name: employee.full_name, submitted_at: now, updated_at: now },
+      $set: { tax_regime: b.tax_regime, metro_city: b.metro_city, parents_senior_citizen: b.parents_senior_citizen, items, employee_email: employee.email, employee_name: employee.full_name, submitted_at: now, updated_at: now },
       $setOnInsert: { id: generateUUID(), employee_uid: uid, financial_year: b.financial_year, created_at: now }
     },
     { upsert: true }
@@ -919,7 +931,7 @@ router.put('/declarations/my', validate(declarationSchema), h(async (req, res) =
       metadata: { declaration_id: saved.id }
     }).catch(() => {});
   }
-  res.json({ ...saved, summary: declarationsSvc.summarize(saved, settings) });
+  res.json({ ...saved, summary: declarationsSvc.summarize(saved, settings, { selfSenior: isSeniorInFy(employee, b.financial_year) }) });
 }));
 
 const proofUpload = (req, res, next) => {

@@ -43,7 +43,11 @@ const schemas = {
       task: Joi.string().trim().max(120).allow('', null),
       billable: Joi.boolean(),
       notes: Joi.string().trim().max(500).allow('', null),
-      minutes: Joi.object().pattern(Joi.string().pattern(DATE), Joi.number().integer().min(0).max(1440)).required()
+      minutes: Joi.object().pattern(Joi.string().pattern(DATE), Joi.number().integer().min(0).max(1440).messages({
+        'number.base': 'Hours must be a number',
+        'number.min': 'Hours cannot be negative',
+        'number.max': 'A day has at most 24 hours'
+      })).required()
     })).max(50).required()
   }),
   weekRef: Joi.object({ week_start: Joi.string().pattern(DATE).required() }),
@@ -378,12 +382,19 @@ router.post('/sheets/:id/action', requireRole(['admin', 'manager']), validate(sc
     const sheet = await db.collection('timesheets').findOne({ id: req.params.id });
     if (!sheet) return res.status(404).json({ detail: 'Timesheet not found' });
     if (sheet.status !== 'submitted') return res.status(400).json({ detail: `Timesheet is ${sheet.status}, not awaiting approval` });
+    // Nobody approves their own timesheet, admins included (same rule as profile change requests)
+    if (req.validatedBody.action === 'approve' && sheet.user_email === req.user.email) {
+      return res.status(403).json({ detail: 'You cannot approve your own timesheet; another approver must act on it' });
+    }
     if (!(await canActOnEmployee(db, req.user, sheet.user_email))) {
       return res.status(403).json({ detail: 'You can only approve timesheets from your team' });
     }
     const { action, comments } = req.validatedBody;
     if (action === 'reject' && !comments) return res.status(400).json({ detail: 'Say what needs fixing when sending a timesheet back' });
+    // "Send back" keeps the stored status 'rejected' (existing data, filters and the
+    // editable check rely on it); only the wording shown to people says "sent back".
     const status = action === 'approve' ? 'approved' : 'rejected';
+    const verb = action === 'approve' ? 'approved' : 'sent back';
     await db.collection('timesheets').updateOne(
       { id: sheet.id },
       { $set: { status, comments: comments || null, actioned_by: req.user.email, actioned_by_name: req.user.full_name, actioned_at: new Date(), updated_at: new Date() } }
@@ -391,8 +402,8 @@ router.post('/sheets/:id/action', requireRole(['admin', 'manager']), validate(sc
     createNotification({
       userEmail: sheet.user_email,
       type: `timesheet_${status}`,
-      title: `Timesheet ${status}`,
-      message: `Your timesheet for the week of ${sheet.week_start} was ${status} by ${req.user.full_name}${comments ? `: ${comments}` : ''}`,
+      title: `Timesheet ${verb}`,
+      message: `Your timesheet for the week of ${sheet.week_start} was ${verb} by ${req.user.full_name}${comments ? `: ${comments}` : ''}`,
       actionUrl: `/timesheets?week=${sheet.week_start}`,
       metadata: { timesheet_id: sheet.id }
     }).catch(() => {});

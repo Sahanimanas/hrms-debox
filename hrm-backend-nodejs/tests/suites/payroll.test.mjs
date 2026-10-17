@@ -51,6 +51,8 @@ await run(async () => {
   check('HRA exemption = least of three (non-metro)', statutory.computeHraExemption({ hraReceived: 300000, basicDa: 600000, rentPaid: 240000, metro: false }) === 180000);
   check('HRA exemption metro uses 50%', statutory.computeHraExemption({ hraReceived: 400000, basicDa: 600000, rentPaid: 500000, metro: true }) === 300000);
   check('80C capped at ₹1.5L, 24(b) at ₹2L', (() => { const c = statutory.capDeductions({ '80C': 300000, '24B': 350000 }); return c.breakdown['80C'] === 150000 && c.breakdown['24B'] === 200000; })());
+  check('80CCE: 80C + 80CCC + 80CCD(1) share one ₹1.5L limit; 80CCD(1B) ₹50k on top', (() => { const c = statutory.capDeductions({ '80C': 100000, '80CCC': 40000, '80CCD1': 30000, '80CCD1B': 60000 }); return c.breakdown['80C'] === 100000 && c.breakdown['80CCC'] === 40000 && c.breakdown['80CCD1'] === 10000 && c.breakdown['80CCD1B'] === 50000 && c.total === 200000; })());
+  check('80D: ₹25k each, ₹50k for a senior citizen', (() => { const a = statutory.capDeductions({ '80D_self': 60000, '80D_parents': 60000 }); const b = statutory.capDeductions({ '80D_self': 60000, '80D_parents': 60000 }, { selfSenior: true, parentsSenior: true }); return a.breakdown['80D_self'] === 25000 && a.breakdown['80D_parents'] === 25000 && b.breakdown['80D_self'] === 50000 && b.breakdown['80D_parents'] === 50000; })());
   check('monthly TDS = (annual − deducted) / remaining', statutory.monthlyTds({ annualTax: 120000, tdsDeducted: 30000, remainingMonths: 9 }) === 10000);
   check('FY helpers', statutory.fyOf('2026-03') === '2025-26' && statutory.fyOf('2026-04') === '2026-27' && statutory.fyMonths('2025-26')[11] === '2026-03');
   check('amount in words (Indian system)', statutory.amountInWords(123456.5) === 'Rupees One Lakh Twenty Three Thousand Four Hundred Fifty Six and Fifty Paise Only');
@@ -165,6 +167,14 @@ await run(async () => {
   check('LOP = absents + half-days×0.5 + approved unpaid leave, no double count', r.s === 200 && r.d.lop_days === 4.5, r.d);
   check('paid / pending leave ignored', r.d?.breakdown?.unpaid_leave === 2 && r.d.days.every(d => d.date !== `${M}-12` && d.date !== `${M}-13`), r.d);
   check('LOP amount = gross / days × LOP days', near(r.d?.lop_amount, r2(150000 / daysIn(M) * 4.5)), r.d);
+  check('closed month: unmarked working days reported, paid while auto-absent is off', r.d?.period === 'closed' && r.d.elapsed_days === daysIn(M) && r.d.unmarked_days > 0 && r.d.unmarked_is_lop === false && !r.d.unmarked_dates.some(d => [`${M}-03`, `${M}-06`, `${M}-11`, `${M}-12`, `${M}-13`].includes(d)), r.d);
+  const unmarkedM = r.d?.unmarked_days || 0;
+  await withDb(db => db.collection('time_settings').updateOne({ id: 'default' }, { $set: { auto_absent_enabled: true } }, { upsert: true }));
+  r = await get(`/v2/payroll/lop/${e1.employee_id}?month=${M}`, admin);
+  check('auto-absent on: unmarked past working days are loss of pay', r.d?.unmarked_is_lop === true && r.d.lop_days === Math.min(daysIn(M), 4.5 + unmarkedM) && r.d.breakdown.no_attendance === unmarkedM, r.d);
+  r = await get(`/v2/payroll/lop/${e1.employee_id}?month=${CUR}`, admin);
+  check('current month: only days before today are counted, future days never', r.d?.period === 'in_progress' && r.d.upcoming_days === daysIn(CUR) - r.d.elapsed_days && r.d.unmarked_dates.every(d => d < `${CUR}-${pad(r.d.elapsed_days + 1)}`) && r.d.lop_days <= r.d.elapsed_days, r.d);
+  await withDb(db => db.collection('time_settings').updateOne({ id: 'default' }, { $set: { auto_absent_enabled: false } }));
   await put('/v2/payroll/settings', admin, { lop_basis: '26' });
   r = await get(`/v2/payroll/lop/${e1.employee_id}?month=${M}`, admin);
   check('fixed 26-day LOP basis', r.d?.basis_days === 26 && near(r.d.lop_amount, r2(150000 / 26 * 4.5)), r.d);
@@ -259,7 +269,14 @@ await run(async () => {
   r = await upload(`/v2/payroll/declarations/my/items/${itemHra.id}/proofs`, e1.token, [{ field: 'file', name: 'rent.pdf', type: 'application/pdf', content: '%PDF-1.4 rent' }], { financial_year: FY });
   r = await get(`/v2/payroll/declarations/my?fy=${FY}`, e1.token);
   check('new proof re-opens a rejected item', r.d?.items?.find(i => i.id === itemHra.id)?.status === 'declared', r.d);
-  check('counted amount: approved 80C + declared items (before deadline)', r.d?.summary?.counted === 180000 + 240000 + 20000, r.d?.summary);
+  // Previously unverified items counted and 80C was not capped (UAT #10)
+  check('counted for TDS: only approved amounts, 80C capped at ₹1.5L', r.d?.summary?.counted === 150000 && r.d.summary.by_section['80C'].claimed === 180000 && r.d.summary.by_section['80C'].counted === 150000 && r.d.summary.over_limit === 30000, r.d?.summary);
+  await put('/v2/payroll/settings', admin, { use_declared_until_deadline: true });
+  r = await get(`/v2/payroll/declarations/my?fy=${FY}`, e1.token);
+  check('opt-in without a proof deadline: declared amounts still do not count', r.d?.summary?.counted === 150000, r.d?.summary);
+  await put('/v2/payroll/settings', admin, { proof_deadline: '2099-12-31' });
+  r = await get(`/v2/payroll/declarations/my?fy=${FY}`, e1.token);
+  check('opt-in before the proof deadline: declared items count too (still capped)', r.d?.summary?.counted === 150000 + 240000 + 20000, r.d?.summary);
   r = await upload(`/v2/payroll/declarations/my/items/${item80C.id}/proofs`, e1.token, [{ field: 'file', name: 'p2.pdf', type: 'application/pdf', content: '%PDF' }], { financial_year: FY });
   check('verified item is locked for new proofs', r.s === 409, r);
   // Resubmitting keeps the approval for unchanged items
@@ -272,11 +289,14 @@ await run(async () => {
   check('resubmitting keeps approval of unchanged items and their proofs', r.d?.items?.find(i => i.id === item80C.id)?.status === 'approved' && r.d.items.find(i => i.id === itemHra.id).proofs.length === 1, r.d);
   await put('/v2/payroll/settings', admin, { proof_deadline: '2000-01-01' });
   r = await get(`/v2/payroll/declarations/my?fy=${FY}`, e1.token);
-  check('after the proof deadline only approved amounts count', r.d?.summary?.counted === 180000, r.d?.summary);
-  await put('/v2/payroll/settings', admin, { proof_deadline: null, declaration_window_open: false });
+  check('after the proof deadline only approved amounts count (capped)', r.d?.summary?.counted === 150000, r.d?.summary);
+  await put('/v2/payroll/settings', admin, { proof_deadline: null, use_declared_until_deadline: false, declaration_window_open: false });
   r = await put('/v2/payroll/declarations/my', e1.token, declBody([]));
   check('declaration window lock blocks changes', r.s === 409, r);
   await put('/v2/payroll/settings', admin, { declaration_window_open: true });
+  // Rent is verified so the run below gets an HRA exemption (unverified amounts no longer count)
+  r = await post(`/v2/payroll/declarations/${decl.id}/items/${itemHra.id}/verify`, admin, { action: 'approve' });
+  check('approve re-submitted rent', r.s === 200 && r.d.summary.counted === 150000 + 240000, r.d?.summary);
 
   // ================================================================
   section('PY-7 Salary advances and loans');
@@ -362,9 +382,26 @@ await run(async () => {
   r = await post('/v2/payroll/runs', admin, { month: '2099-01' });
   check('far-future month rejected', r.s === 400, r);
   const PREV = shiftMonth(M, -1);
+  // UAT #5: salary only on employees.monthly_salary, and an employee with an empty code
+  const onlyMonthly = await createUser(admin, { name: 'Mohan Monthlyonly', joining_date: '2021-01-01' });
+  const noCode = await createUser(admin, { name: 'Neha Nocode', joining_date: '2021-01-01' });
+  await withDb(async db => {
+    await db.collection('employees').updateOne({ email: onlyMonthly.email }, { $set: { monthly_salary: 40000 } });
+    await db.collection('employees').updateOne({ email: noCode.email }, { $set: { employee_id: '', monthly_salary: 30000 } });
+  });
   r = await post('/v2/payroll/runs', admin, { month: PREV });
   check('create a draft run', r.s === 201 && r.d.status === 'draft', r.d);
   const throwaway = r.d.id;
+  const slipOnly = r.d.payslips?.find(p => p.employee_email === onlyMonthly.email);
+  const slipNoCode = r.d.payslips?.find(p => p.employee_email === noCode.email);
+  check('no salary structure: monthly_salary used with the default CTC split', slipOnly?.monthly_gross === 40000 && slipOnly.salary_source === 'monthly_salary' && slipOnly.earnings.find(e => e.name === 'Basic Pay')?.amount === 20000 && slipOnly.warnings.some(w => /monthly salary/i.test(w)), slipOnly);
+  check('employee without an employee code still gets a payslip', !!slipNoCode && slipNoCode.monthly_gross === 30000 && !!slipNoCode.employee_uid && slipNoCode.employee_code === null, slipNoCode || r.d.skipped);
+  r = await post(`/salary-structure/${encodeURIComponent(noCode.email)}`, admin, { basic_salary: 32000, components: DEFAULT_COMPONENTS, effective_from: PREV });
+  check('legacy salary structure save resolves an employee without a code', r.s === 200 && r.d.structure.gross_salary === 32000, r.d);
+  r = await get(`/salary-structure/${encodeURIComponent(noCode.email)}`, admin);
+  check('legacy salary structure GET resolves an employee without a code', r.s === 200 && r.d?.basic_salary === 32000, r.d);
+  // Keep them out of the main run (bank-file / compliance counts below)
+  await withDb(db => db.collection('employees').updateMany({ email: { $in: [onlyMonthly.email, noCode.email] } }, { $set: { employment_status: 'exited' } }));
   r = await del(`/v2/payroll/runs/${throwaway}`, admin);
   check('draft run can be discarded', r.s === 200, r);
   r = await get(`/v2/payroll/runs/${throwaway}`, admin);
@@ -397,6 +434,21 @@ await run(async () => {
   check('ESI 0.75% for low wage employee, employer 3.25%', p2.statutory.esi_applicable && p2.statutory.esi_employee === 135 && p2.employer_contributions.esi === 585, p2.statutory);
   check('pending leave encashment paid as an earning', p2.earnings.some(e => e.type === 'leave_encashment' && e.amount === 4000) && p2.encashment_ids.includes('enc-1'), p2.earnings);
   check('salary advance recovered', p2.deductions.some(d => d.name === 'Salary Advance Recovery' && d.amount === 3000), p2.deductions);
+  section('Payroll Management summary (legacy page)');
+  r = await get(`/payroll/monthly-summary/${M}`, admin);
+  const sum1 = r.d?.employees?.find(x => x.employee_uid === e1.employee_id);
+  check('summary uses the run: same net, LOP and statutory deductions as the payslip', r.s === 200 && r.d.source === 'run_draft' && sum1?.net_salary === p1.net_pay && sum1.unpaid_days === 4.5 && sum1.deductions.pf === 1800 && sum1.deductions.pt > 0 && sum1.total_deductions === p1.total_deductions, sum1 || r.d);
+  r = await get(`/payroll/monthly-summary/${NEXT}`, admin);
+  const sumNext = r.d?.employees?.find(x => x.employee_uid === e1.employee_id);
+  check('no run yet: preview from the engine (statutory deductions, nothing saved)', r.s === 200 && r.d.source === 'preview' && sumNext?.deductions.pf === 1800 && sumNext.statutory_deductions > 0 && sumNext.period === 'future' && sumNext.unmarked_days === 0, sumNext || r.d);
+  const previewRuns = await withDb(db => db.collection('payroll_runs').countDocuments({ month: NEXT }));
+  check('preview does not create a run', previewRuns === 0, previewRuns);
+  r = await get(`/payroll/monthly-summary/${CUR}`, admin);
+  const sumCur = r.d?.employees?.find(x => x.employee_uid === e1.employee_id);
+  check('current month: attendance counted only up to yesterday', r.s === 200 && sumCur?.period === 'in_progress' && sumCur.elapsed_days < daysIn(CUR) && sumCur.payable_days_to_date <= sumCur.elapsed_days, sumCur || r.d);
+  r = await get('/payroll/monthly-summary/2026-13', admin);
+  check('summary validates month', r.s === 422, r);
+
   const sumNet = r2(runData.payslips.reduce((s, p) => s + p.net_pay, 0));
   check('run totals = sum of payslips', near(runData.totals.net, sumNet) && runData.employee_count === runData.payslips.length && runData.totals.employer_cost > runData.totals.net, runData.totals);
   r = await get('/v2/payroll/runs', admin);
