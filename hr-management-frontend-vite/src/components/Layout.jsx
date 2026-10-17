@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { Home, Users, FileText, CheckSquare, User, LogOut, Menu, X, Settings, Bell, Network, ClipboardList, Wallet, Gift, Building2, BarChart3, DollarSign, Calculator, Layout as LayoutIcon, Clock, Clock3, Timer, CalendarDays, Receipt, ClipboardCheck, Sparkles } from 'lucide-react';
 import { clearAuth, getAuth, hasPermission } from '@/lib/auth';
@@ -9,7 +9,7 @@ import NotificationBell from '@/components/NotificationBell';
 import BrandLogo from '@/components/BrandLogo';
 import SidebarNav from '@/components/SidebarNav';
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher';
-import Topbar from '@/components/Topbar';
+import Topbar, { NavSearch } from '@/components/Topbar';
 import { Avatar } from '@/components/ds';
 import { moduleNav } from '@/modules/registry';
 import InstallPrompt from '@/modules/platform/components/InstallPrompt';
@@ -64,11 +64,38 @@ const isNavItemVisible =(item, user, permissions) =>
   (Array.isArray(item.roles) && item.roles.includes(user?.role)) ||
   (!!item.permission && hasPermission(user, permissions, item.permission));
 
+// Desktop sidebar shown / hidden, remembered per browser
+const SIDEBAR_HIDDEN_KEY = 'sidebar_hidden';
+const readSidebarHidden = () => {
+  try { return localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1'; } catch { return false; }
+};
+
 const Layout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { language, setLanguage } = useI18n();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(readSidebarHidden);
+  const searchRef = useRef(null);
+
+  const toggleSidebar = () => setSidebarHidden((hidden) => !hidden);
+
+  useEffect(() => {
+    try { localStorage.setItem(SIDEBAR_HIDDEN_KEY, sidebarHidden ? '1' : '0'); } catch { /* storage blocked */ }
+  }, [sidebarHidden]);
+
+  // ⌘K / Ctrl K: show the sidebar if it is hidden, then focus its search box
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSidebarHidden(false);
+        requestAnimationFrame(() => searchRef.current?.focus());
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const [currentUser, setCurrentUser] = useState(null);
   const [lastPath, setLastPath] = useState(location.pathname);
   const { user: storedUser } = getAuth();
@@ -147,9 +174,14 @@ const Layout = () => {
 
   return (
     <div className="flex h-screen bg-canvas">
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex md:flex-col md:w-[264px] shrink-0 bg-navy">
-        <SidebarBody {...sidebarProps} />
+      {/* Desktop Sidebar (collapses to nothing; inner width is fixed so it slides instead of reflowing) */}
+      <aside
+        className={`hidden md:flex shrink-0 overflow-hidden bg-navy transition-[width] duration-200 ease-in-out ${sidebarHidden ? 'md:w-0' : 'md:w-[264px]'}`}
+        inert={sidebarHidden}
+      >
+        <div className="flex w-[264px] shrink-0 flex-col">
+          <SidebarBody {...sidebarProps} searchRef={searchRef} />
+        </div>
       </aside>
 
       {/* Mobile Sidebar with Animation */}
@@ -190,7 +222,8 @@ const Layout = () => {
         </div>
 
         <Topbar
-          navItems={filteredNavigation}
+          sidebarHidden={sidebarHidden}
+          onToggleSidebar={toggleSidebar}
           name={displayName}
           email={email}
           pictureUrl={profilePictureUrl}
@@ -216,7 +249,7 @@ const Layout = () => {
 };
 
 /** Sidebar contents (Figma "App/Sidebar"), shared by the desktop rail and the mobile drawer. */
-const SidebarBody = ({ items, isActive, orgName, displayName, profilePictureUrl, roleLabel, onLogout, onNavigate, onClose, aiConfigured }) => {
+const SidebarBody = ({ items, isActive, orgName, displayName, profilePictureUrl, roleLabel, onLogout, onNavigate, onClose, aiConfigured, searchRef }) => {
   const { t } = useI18n();
   const hasAssistant = aiConfigured && items.some(i => i.href === '/assistant');
   return (
@@ -235,6 +268,8 @@ const SidebarBody = ({ items, isActive, orgName, displayName, profilePictureUrl,
       </div>
 
       <WorkspaceSwitcher current="hr" variant="card" title={orgName} />
+
+      <NavSearch items={items} inputRef={searchRef} onNavigate={onNavigate} tone="dark" />
 
       <nav className="flex-1 min-h-0 -mx-1 px-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#1c2740_transparent]">
         <SidebarNav items={items} isActive={isActive} onNavigate={onNavigate} compact />

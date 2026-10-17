@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Search, ChevronDown, User, LogOut, Languages } from 'lucide-react';
+import { Search, ChevronDown, User, LogOut, Languages, Menu } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import NotificationBell from '@/components/NotificationBell';
+import BrandLogo from '@/components/BrandLogo';
 import { Avatar } from '@/components/ds';
 import api from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
@@ -50,25 +51,20 @@ const ClockStatus = () => {
   );
 };
 
-/** ⌘K search over the pages the user can open. */
-const NavSearch = ({ items }) => {
+/**
+ * Search over the pages the user can open. Lives in the sidebar (tone "dark").
+ * The ⌘K / Ctrl K shortcut is owned by Layout, which passes `inputRef` so it
+ * can open a hidden sidebar first and then focus this box.
+ */
+export const NavSearch = ({ items, inputRef: externalRef, onNavigate, tone = 'light' }) => {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const inputRef = useRef(null);
+  const ownRef = useRef(null);
+  const inputRef = externalRef || ownRef;
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const dark = tone === 'dark';
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -83,6 +79,7 @@ const NavSearch = ({ items }) => {
     setOpen(false);
     inputRef.current?.blur();
     navigate(item.href);
+    onNavigate?.();
   };
 
   const onKeyDown = (e) => {
@@ -95,9 +92,13 @@ const NavSearch = ({ items }) => {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
   return (
-    <div className="relative w-full max-w-[380px]">
-      <label className="flex h-10 items-center gap-2.5 rounded-md bg-subtle px-3 focus-within:ring-2 focus-within:ring-ring/60">
-        <Search className="h-[18px] w-[18px] shrink-0 text-ink-muted" />
+    <div className="relative w-full">
+      <label
+        className={`flex h-10 items-center gap-2.5 rounded-md px-3 focus-within:ring-2 ${dark
+          ? 'border border-navy-border bg-navy-hover focus-within:ring-brand/60'
+          : 'bg-subtle focus-within:ring-ring/60'}`}
+      >
+        <Search className={`h-[18px] w-[18px] shrink-0 ${dark ? 'text-navy-text' : 'text-ink-muted'}`} />
         <input
           ref={inputRef}
           value={query}
@@ -105,11 +106,16 @@ const NavSearch = ({ items }) => {
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 120)}
           onKeyDown={onKeyDown}
-          placeholder={t('Search people, leaves, payslips…')}
-          className="min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-ink-muted outline-none"
-          data-testid="topbar-search"
+          placeholder={t('Search pages…')}
+          aria-label={t('Search pages')}
+          className={`min-w-0 flex-1 bg-transparent text-sm outline-none ${dark ? 'text-white placeholder:text-navy-text' : 'text-ink placeholder:text-ink-muted'}`}
+          data-testid="sidebar-search"
         />
-        <kbd className="hidden sm:inline-block rounded-sm border border-line bg-surface px-1.5 py-px text-xs font-semibold leading-4 text-ink-secondary">
+        <kbd
+          className={`hidden sm:inline-block rounded-sm border px-1.5 py-px text-xs font-semibold leading-4 ${dark
+            ? 'border-navy-border text-navy-text'
+            : 'border-line bg-surface text-ink-secondary'}`}
+        >
           {isMac ? '⌘K' : 'Ctrl K'}
         </kbd>
       </label>
@@ -179,16 +185,31 @@ const AccountMenu = ({ name, email, pictureUrl, onLogout }) => {
   );
 };
 
-/** Global top bar (Figma "App/Topbar"): search, clock status, notifications, account. */
-const Topbar = ({ navItems, name, email, pictureUrl, onLogout }) => (
-  <header className="hidden md:flex h-[72px] shrink-0 items-center gap-3 border-b border-line bg-surface px-6 lg:px-8">
-    <NavSearch items={navItems} />
-    <div className="flex-1" />
-    <ClockStatus />
-    <NotificationBell />
-    <div className="h-7 w-px bg-line" />
-    <AccountMenu name={name} email={email} pictureUrl={pictureUrl} onLogout={onLogout} />
-  </header>
-);
+/** Global top bar (Figma "App/Topbar"): sidebar toggle, clock status, notifications, account. */
+const Topbar = ({ name, email, pictureUrl, onLogout, sidebarHidden, onToggleSidebar }) => {
+  const { t } = useI18n();
+  const label = sidebarHidden ? t('Show sidebar') : t('Hide sidebar');
+  return (
+    <header className="hidden md:flex h-[72px] shrink-0 items-center gap-3 border-b border-line bg-surface px-6 lg:px-8">
+      <button
+        type="button"
+        onClick={onToggleSidebar}
+        className="-ml-2 rounded-md p-2 text-ink-secondary transition-colors hover:bg-subtle hover:text-ink"
+        aria-label={label}
+        aria-expanded={!sidebarHidden}
+        title={label}
+        data-testid="sidebar-toggle"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+      {sidebarHidden && <BrandLogo size="sm" tone="dark" />}
+      <div className="flex-1" />
+      <ClockStatus />
+      <NotificationBell />
+      <div className="h-7 w-px bg-line" />
+      <AccountMenu name={name} email={email} pictureUrl={pictureUrl} onLogout={onLogout} />
+    </header>
+  );
+};
 
 export default Topbar;
