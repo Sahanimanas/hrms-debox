@@ -8,11 +8,45 @@ const {
 } = require('../common');
 const { progressOf } = require('../onboarding');
 
+// Manager reference fields, in order of preference. The app writes manager_email;
+// seed.js and older imports reference the manager's _id / id / code instead.
+const MANAGER_REF_FIELDS = ['manager_id', 'reporting_manager_id', 'reporting_manager', 'manager_uid', 'manager_employee_id'];
+
+const keyOf = (v) => (v == null || v === '' ? null : String(v).trim().toLowerCase() || null);
+
+/**
+ * Resolve each person's manager: manager_email first (case-insensitive), then
+ * any id-style reference matched against _id, uuid id, employee_id or code.
+ * Self-references resolve to no manager.
+ */
+const resolveManagers = (people) => {
+  const byEmail = new Map();
+  const byId = new Map();
+  for (const p of people) {
+    const email = keyOf(p.email);
+    if (email && !byEmail.has(email)) byEmail.set(email, p);
+    for (const k of [p._id, p.id, p.employee_id, p.employee_code]) {
+      const key = keyOf(k);
+      if (key && !byId.has(key)) byId.set(key, p);
+    }
+  }
+  return people.map(p => {
+    const candidates = [byEmail.get(keyOf(p.manager_email))];
+    for (const field of MANAGER_REF_FIELDS) {
+      const ref = p[field];
+      const key = keyOf(ref && typeof ref === 'object' && !ref.toHexString ? (ref.email || ref.id || ref._id) : ref);
+      if (key) candidates.push(byId.get(key) || byEmail.get(key));
+    }
+    return candidates.find(m => m && m !== p) || null;
+  });
+};
+
 module.exports = (router) => {
   /**
    * GET /org-chart — directory fields for everyone (no salary / personal data).
    * Exited employees are hidden unless ?include_exited=1 (admin only).
-   * Each person gets `manager_uid` (null for roots: no manager, or the manager no longer exists).
+   * Each person gets `manager_uid` (null for roots: no manager, or the manager no longer exists),
+ * resolved from manager_email or an id-style manager reference (see resolveManagers).
    */
   router.get('/org-chart', async (req, res) => {
     try {
@@ -20,12 +54,12 @@ module.exports = (router) => {
       const includeExited = req.user.role === 'admin' && ['1', 'true'].includes(String(req.query.include_exited));
       const query = includeExited ? {} : { employment_status: { $ne: 'exited' } };
       const people = await db.collection('employees').find(query, {
-        projection: { _id: 1, id: 1, employee_id: 1, employee_code: 1, full_name: 1, email: 1, department: 1, designation: 1, role: 1, manager_email: 1, manager_name: 1, joining_date: 1, employment_status: 1, profile_picture_url: 1 }
+        projection: { _id: 1, id: 1, employee_id: 1, employee_code: 1, full_name: 1, email: 1, department: 1, designation: 1, role: 1, manager_email: 1, manager_name: 1, joining_date: 1, employment_status: 1, profile_picture_url: 1, ...Object.fromEntries(MANAGER_REF_FIELDS.map(f => [f, 1])) }
       }).toArray();
-      const byEmail = new Map(people.map(p => [p.email, p]));
-      const nodes = people.map(p => {
+      const managers = resolveManagers(people);
+      const nodes = people.map((p, i) => {
         const card = employeeCard(p);
-        const manager = p.manager_email && p.manager_email !== p.email ? byEmail.get(p.manager_email) : null;
+        const manager = managers[i];
         return { ...card, joining_date: toDateStr(p.joining_date), manager_uid: manager ? uidOf(manager) : null };
       });
       // Break cycles (A reports to B reports to A): the first node seen in a cycle becomes a root
